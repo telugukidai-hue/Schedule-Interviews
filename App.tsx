@@ -31,6 +31,30 @@ const App = () => {
     }
   }, [allUsers, interviews, blockedSlots]);
 
+  // Sync session across tabs
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'interview_flow_db_v4') {
+        const data = loadData();
+        setAllUsers(data.users);
+        setInterviews(data.interviews);
+        setBlockedSlots(data.blockedSlots || []);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  // Sync current user state if their data changes (e.g. approval)
+  useEffect(() => {
+    if (user) {
+      const freshUser = allUsers.find(u => u.id === user.id);
+      if (freshUser && (freshUser.approved !== user.approved)) {
+        setUser(freshUser);
+      }
+    }
+  }, [allUsers, user]);
+
   // --- Actions ---
 
   const handleLogin = (identifier: string, passOrPhone: string, role: Role) => {
@@ -141,24 +165,24 @@ const App = () => {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col relative overflow-hidden">
         {/* Decorative Background */}
-        <div className="absolute inset-0 bg-slate-50 z-0">
+        <div className="absolute inset-0 bg-slate-50 z-0 pointer-events-none">
           <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-50/50 to-slate-100/50"></div>
           <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-200/30 rounded-full mix-blend-multiply filter blur-3xl animate-blob"></div>
           <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-200/30 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-2000"></div>
           <div className="absolute bottom-[-20%] left-[20%] w-[40%] h-[40%] bg-pink-200/30 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-4000"></div>
         </div>
 
-        <div className="absolute top-4 right-4 z-50">
+        <div className="absolute top-4 right-4 z-[100]">
           <Button 
             variant="ghost" 
             onClick={() => setAuthView(authView === 'student' ? 'admin' : 'student')}
-            className="text-xs bg-white/80 backdrop-blur shadow-sm hover:bg-white border border-white/50"
+            className="text-xs bg-white/80 backdrop-blur shadow-sm hover:bg-white border border-white/50 cursor-pointer"
           >
             {authView === 'student' ? 'Admin / Interviewer Login' : 'Student Login'}
           </Button>
         </div>
         
-        <div className="z-10 w-full h-full flex flex-col flex-1 relative">
+        <div className="z-10 w-full h-full flex flex-col flex-1 relative justify-center">
            <Auth 
             mode={authView}
             onLogin={handleLogin}
