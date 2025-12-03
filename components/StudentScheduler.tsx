@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, InterviewSlot, Stage, BlockedSlot, HOURS_START, HOURS_END } from '../types';
-import { CheckCircle, Calendar as CalendarIcon, Clock, ChevronRight, ChevronLeft, Building2, Trash2, Ban, AlertTriangle, RefreshCw } from 'lucide-react';
+import { CheckCircle, Calendar as CalendarIcon, Clock, ChevronRight, ChevronLeft, Building2, Trash2, Ban, AlertTriangle, RefreshCw, Info } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, startOfToday, isToday, addMinutes, parse, startOfWeek, endOfWeek } from 'date-fns';
 import { Button } from './Button';
 
@@ -28,6 +28,7 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
   const [companyName, setCompanyName] = useState('');
+  const [feedbackMsg, setFeedbackMsg] = useState<{type: 'success' | 'info', text: string} | null>(null);
   
   // Slot Status: 'available' | 'booked' (Yellow) | 'mine' (Green) | 'blocked' (Red)
   const [slotStatuses, setSlotStatuses] = useState<{time: string, status: string}[]>([]);
@@ -140,8 +141,9 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
     if (selectedDate && duration && pendingSlot && companyName.trim()) {
       onSchedule(format(selectedDate, 'yyyy-MM-dd'), pendingSlot, duration, companyName);
       setPendingSlot(null);
-      // Reset after booking
       setCompanyName('');
+      setFeedbackMsg({ type: 'success', text: 'Interview scheduled successfully!' });
+      setTimeout(() => setFeedbackMsg(null), 5000);
     }
   };
 
@@ -149,10 +151,15 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
     if (interviewToCancel) {
       onCancel(interviewToCancel);
       setInterviewToCancel(null);
+      // Feedback to user
+      setFeedbackMsg({ type: 'info', text: 'Booking cancelled. Please select a new slot below.' });
+      
       // Scroll to calendar to encourage re-booking
       setTimeout(() => {
         document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth' });
-      }, 300);
+      }, 100);
+      
+      setTimeout(() => setFeedbackMsg(null), 8000);
     }
   };
 
@@ -220,6 +227,14 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
           </h1>
           <p className="text-slate-500 text-lg">Select a date, duration, and time slot.</p>
         </div>
+
+        {/* Feedback Message */}
+        {feedbackMsg && (
+          <div className={`max-w-2xl mx-auto p-4 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2 ${feedbackMsg.type === 'success' ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-blue-100 text-blue-800 border border-blue-200'}`}>
+             {feedbackMsg.type === 'success' ? <CheckCircle className="w-5 h-5"/> : <Info className="w-5 h-5"/>}
+             <p className="font-medium">{feedbackMsg.text}</p>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
