@@ -38,8 +38,12 @@ const App = () => {
       if (role === Role.STUDENT) {
         return u.name.toLowerCase() === identifier.toLowerCase() && u.phone === passOrPhone && u.role === Role.STUDENT;
       } else {
-        if (role === Role.ADMIN) return u.role === Role.ADMIN && u.name === identifier && u.password === passOrPhone;
-        return u.role === Role.INTERVIEWER && u.name === identifier && u.password === passOrPhone;
+        // Allow login by Name OR by Username (which is stored in 'phone' field for interviewers)
+        const isNameMatch = u.name === identifier;
+        const isUsernameMatch = u.phone === identifier;
+        const isRoleMatch = u.role === role;
+        
+        return isRoleMatch && (isNameMatch || isUsernameMatch) && u.password === passOrPhone;
       }
     });
 
@@ -135,22 +139,32 @@ const App = () => {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col">
+      <div className="min-h-screen bg-slate-50 flex flex-col relative overflow-hidden">
+        {/* Decorative Background */}
+        <div className="absolute inset-0 bg-slate-50 z-0">
+          <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-50/50 to-slate-100/50"></div>
+          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-200/30 rounded-full mix-blend-multiply filter blur-3xl animate-blob"></div>
+          <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-200/30 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-2000"></div>
+          <div className="absolute bottom-[-20%] left-[20%] w-[40%] h-[40%] bg-pink-200/30 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-4000"></div>
+        </div>
+
         <div className="absolute top-4 right-4 z-10">
           <Button 
             variant="ghost" 
             onClick={() => setAuthView(authView === 'student' ? 'admin' : 'student')}
-            className="text-xs bg-white/80 backdrop-blur shadow-sm hover:bg-white"
+            className="text-xs bg-white/80 backdrop-blur shadow-sm hover:bg-white border border-white/50"
           >
             {authView === 'student' ? 'Admin / Interviewer Login' : 'Student Login'}
           </Button>
         </div>
         
-        <Auth 
-          mode={authView}
-          onLogin={handleLogin}
-          onRegister={handleRegister}
-        />
+        <div className="z-10 w-full h-full flex flex-col flex-1 relative">
+           <Auth 
+            mode={authView}
+            onLogin={handleLogin}
+            onRegister={handleRegister}
+          />
+        </div>
       </div>
     );
   }
@@ -160,16 +174,18 @@ const App = () => {
       <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex justify-between items-center">
           <div className="flex items-center gap-2">
-            <div className="bg-blue-600 p-1.5 rounded-lg text-white">
+            <div className="bg-blue-600 p-1.5 rounded-lg text-white shadow-sm">
                <Layout className="w-5 h-5" />
             </div>
             <span className="font-bold text-xl text-slate-800 tracking-tight">InterviewFlow</span>
           </div>
           <div className="flex items-center gap-4">
-            <div className="hidden sm:flex items-center gap-2 text-sm text-slate-600 bg-slate-100 px-3 py-1.5 rounded-full">
-              <UserCircle className="w-4 h-4" />
+            <div className="hidden sm:flex items-center gap-2 text-sm text-slate-600 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200">
+              <UserCircle className="w-4 h-4 text-slate-500" />
               <span className="font-medium">{user.name}</span>
-              <span className="text-xs opacity-60 uppercase tracking-wide font-bold">({user.role})</span>
+              <span className="text-xs text-slate-400 font-bold uppercase tracking-wider pl-1 border-l border-slate-300 ml-1">
+                {user.role}
+              </span>
             </div>
             <Button variant="secondary" onClick={handleLogout} className="text-xs sm:text-sm">
               <LogOut className="w-4 h-4 mr-2" />

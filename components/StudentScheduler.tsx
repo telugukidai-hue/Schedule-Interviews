@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, InterviewSlot, Stage, BlockedSlot, HOURS_START, HOURS_END } from '../types';
-import { CheckCircle, Calendar as CalendarIcon, Clock, ChevronRight, ChevronLeft, Building2, Trash2 } from 'lucide-react';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, startOfToday, isToday, addMinutes, parse } from 'date-fns';
+import { CheckCircle, Calendar as CalendarIcon, Clock, ChevronRight, ChevronLeft, Building2, Trash2, Ban } from 'lucide-react';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, startOfToday, isToday, addMinutes, parse, startOfWeek, endOfWeek } from 'date-fns';
 import { Button } from './Button';
 
 interface StudentSchedulerProps {
@@ -29,7 +29,7 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
   const [duration, setDuration] = useState<number | null>(null);
   const [companyName, setCompanyName] = useState('');
   
-  // Slot Status: 'available' | 'booked' (Yellow) | 'blocked' (Red) | 'selected'
+  // Slot Status: 'available' | 'booked' (Yellow) | 'mine' (Green) | 'blocked' (Red)
   const [slotStatuses, setSlotStatuses] = useState<{time: string, status: string}[]>([]);
   
   // Confirmation Modal
@@ -45,9 +45,16 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
     { label: '2 Hours', value: 120 },
   ];
 
+  // Calendar Logic
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(monthStart);
-  const monthDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
+  const startDate = startOfWeek(monthStart);
+  const endDate = endOfWeek(monthEnd);
+
+  const calendarDays = eachDayOfInterval({
+    start: startDate,
+    end: endDate,
+  });
 
   useEffect(() => {
     if (selectedDate && duration) {
@@ -86,7 +93,7 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
 
       // 1. Check if in past (if today)
       if (isToday(selectedDate) && slotDateTime < new Date()) {
-        status = 'past'; // Don't show or disable
+        status = 'past'; 
       } else {
          // 2. Check Admin Blocks (Red) - Highest Priority
          const isBlocked = daysBlocked.some(b => {
@@ -98,14 +105,17 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
          if (isBlocked) {
            status = 'blocked';
          } else {
-           // 3. Check Booked by Others OR Self (Yellow)
-           const isBooked = daysInterviews.some(i => {
+           // 3. Check Booked by Others OR Self
+           const overlappingInterviews = daysInterviews.filter(i => {
              const iStart = timeToMinutes(i.startTime);
              const iEnd = iStart + i.durationMinutes;
              return isTimeOverlapping(slotStart, slotEnd, iStart, iEnd);
            });
 
-           if (isBooked) status = 'booked';
+           if (overlappingInterviews.length > 0) {
+             const isMine = overlappingInterviews.some(i => i.studentId === student.id);
+             status = isMine ? 'mine' : 'booked';
+           }
          }
       }
 
@@ -147,7 +157,7 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-12">
+    <div className="max-w-6xl mx-auto space-y-12 pb-20">
       
       {/* 1. My Scheduled Interviews Section */}
       {myInterviews.length > 0 && (
@@ -157,7 +167,7 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
            </h2>
            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
              {myInterviews.map(interview => (
-               <div key={interview.id} className="bg-slate-50 rounded-xl border border-slate-200 p-5 relative overflow-hidden group hover:shadow-md transition-shadow">
+               <div key={interview.id} className="bg-white rounded-xl border border-green-200 p-5 relative overflow-hidden group shadow-sm hover:shadow-md transition-shadow">
                  <div className="absolute top-0 left-0 w-1 h-full bg-green-500"></div>
                  <div className="flex justify-between items-start">
                     <div>
@@ -174,7 +184,7 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
                       </div>
                     )}
                  </div>
-                 <div className="mt-5 pt-4 border-t border-slate-200 flex justify-end">
+                 <div className="mt-5 pt-4 border-t border-slate-100 flex justify-end">
                     <button 
                       onClick={() => {
                         if(confirm('Are you sure you want to cancel this interview? You can reschedule by booking a new slot.')) {
@@ -226,15 +236,11 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
               </div>
               
               <div className="grid grid-cols-7 gap-2">
-                {monthDays.map((date) => {
+                {calendarDays.map((date) => {
                   const isSelected = selectedDate && isSameDay(date, selectedDate);
                   const isCurrentMonth = isSameMonth(date, currentMonth);
                   const isTodayDate = isToday(date);
-                  
-                  // Past dates disable
                   const isPast = date < startOfToday();
-
-                  if (!isCurrentMonth) return <div key={date.toString()} className="aspect-square"></div>;
 
                   return (
                     <button
@@ -243,6 +249,7 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
                       onClick={() => setSelectedDate(date)}
                       className={`
                         aspect-square rounded-lg flex flex-col items-center justify-center text-sm transition-all relative
+                        ${!isCurrentMonth ? 'text-slate-300 bg-slate-50/50' : ''}
                         ${isSelected 
                           ? 'bg-blue-600 text-white shadow-md scale-105 z-10' 
                           : isPast ? 'bg-slate-50 text-slate-300 cursor-not-allowed' : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-100'
@@ -250,7 +257,12 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
                         ${isTodayDate && !isSelected ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
                       `}
                     >
-                      <span className={`text-xs ${isSelected ? 'text-blue-200' : 'text-slate-400'}`}>{format(date, 'MMM')}</span>
+                      {/* Only show month name on first day of month or first day of grid */}
+                      {isCurrentMonth && (
+                         <span className={`text-[10px] ${isSelected ? 'text-blue-200' : 'text-slate-400'}`}>
+                           {format(date, 'MMM')}
+                         </span>
+                      )}
                       <span className="font-bold text-lg">{format(date, 'd')}</span>
                       {isTodayDate && <span className="absolute bottom-1 w-1 h-1 bg-blue-500 rounded-full"></span>}
                     </button>
@@ -291,14 +303,15 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
                    {selectedDate ? format(selectedDate, 'EEEE, MMMM do') : 'Select a date'}
                    {duration ? ` • ${duration} Mins` : ''}
                  </p>
-                 <div className="flex gap-3 mt-3 text-[10px] uppercase font-bold tracking-wide">
-                    <span className="flex items-center gap-1 text-slate-500"><span className="w-2 h-2 rounded-full bg-slate-200"></span> Available</span>
-                    <span className="flex items-center gap-1 text-yellow-600"><span className="w-2 h-2 rounded-full bg-yellow-400"></span> Unavailable</span>
-                    <span className="flex items-center gap-1 text-red-600"><span className="w-2 h-2 rounded-full bg-red-500"></span> Blocked</span>
+                 <div className="flex flex-wrap gap-3 mt-4 text-[10px] uppercase font-bold tracking-wide">
+                    <span className="flex items-center gap-1 text-slate-600"><span className="w-2.5 h-2.5 rounded-full bg-slate-100 border border-slate-300"></span> Open</span>
+                    <span className="flex items-center gap-1 text-yellow-600"><span className="w-2.5 h-2.5 rounded-full bg-yellow-100 border border-yellow-400"></span> Taken</span>
+                    <span className="flex items-center gap-1 text-green-600"><span className="w-2.5 h-2.5 rounded-full bg-green-100 border border-green-500"></span> My Slot</span>
+                    <span className="flex items-center gap-1 text-red-600"><span className="w-2.5 h-2.5 rounded-full bg-red-100 border border-red-500"></span> Blocked</span>
                  </div>
                </div>
                
-               <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+               <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar max-h-[500px]">
                  {slotStatuses.length > 0 ? (
                    <div className="grid grid-cols-2 gap-3">
                      {slotStatuses.map(slot => (
@@ -310,13 +323,15 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
                           group flex items-center justify-between px-4 py-3 text-sm font-medium rounded-xl border transition-all shadow-sm
                           ${slot.status === 'available' ? 'bg-slate-50 hover:bg-blue-600 hover:text-white border-slate-200 hover:border-blue-600 cursor-pointer' : ''}
                           ${slot.status === 'booked' ? 'bg-yellow-50 text-yellow-700 border-yellow-200 cursor-not-allowed opacity-90' : ''}
+                          ${slot.status === 'mine' ? 'bg-green-50 text-green-700 border-green-200 cursor-not-allowed opacity-90' : ''}
                           ${slot.status === 'blocked' ? 'bg-red-50 text-red-700 border-red-200 cursor-not-allowed opacity-80' : ''}
                         `}
                        >
                          {slot.time}
                          {slot.status === 'available' && <ChevronRight size={16} className="opacity-0 group-hover:opacity-100 transition-opacity" />}
-                         {slot.status === 'booked' && <span className="text-[10px] uppercase">Booked</span>}
-                         {slot.status === 'blocked' && <span className="text-[10px] uppercase">Blocked</span>}
+                         {slot.status === 'booked' && <span className="text-[10px] uppercase font-bold">Taken</span>}
+                         {slot.status === 'mine' && <CheckCircle size={14} />}
+                         {slot.status === 'blocked' && <Ban size={14} />}
                        </button>
                      ))}
                    </div>

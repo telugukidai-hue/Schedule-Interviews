@@ -1,4 +1,5 @@
 {
   "name": "InterviewFlow",
-  "description": "A comprehensive interview management system for students, interviewers, and administrators featuring scheduling, stage tracking, and AI-assisted question generation."
+  "description": "A comprehensive interview management system for students, interviewers, and administrators featuring scheduling, stage tracking, and AI-assisted question generation.",
+  "requestFramePermissions": []
 }
