@@ -1,7 +1,9 @@
+
 import React, { useState } from 'react';
 import { User, InterviewSlot, Stage } from '../types';
 import { ArrowRightLeft, Sparkles } from 'lucide-react';
 import { generateInterviewQuestions } from '../services/geminiService';
+import { parseISO } from 'date-fns';
 
 interface InterviewerGridProps {
   interviews: InterviewSlot[];
@@ -88,7 +90,7 @@ export const InterviewerGrid: React.FC<InterviewerGridProps> = ({
                         </span>
                       </div>
                       <div className="text-xs text-slate-500 mt-1">
-                        {new Date(interview.date).toLocaleDateString()} • {interview.startTime} ({interview.durationMinutes}m)
+                        {parseISO(interview.date).toLocaleDateString()} • {interview.startTime} ({interview.durationMinutes}m)
                       </div>
 
                       <div className="mt-3 flex gap-2">
@@ -144,7 +146,7 @@ export const InterviewerGrid: React.FC<InterviewerGridProps> = ({
              {activeInterviews.filter(i => !i.interviewerId).map(interview => (
                 <div key={interview.id} className="bg-white p-3 rounded shadow-sm border border-l-4 border-l-orange-400">
                    <div className="font-medium text-sm">{users.find(u => u.id === interview.studentId)?.name}</div>
-                   <div className="text-xs text-slate-500">{new Date(interview.date).toLocaleDateString()} @ {interview.startTime}</div>
+                   <div className="text-xs text-slate-500">{parseISO(interview.date).toLocaleDateString()} @ {interview.startTime}</div>
                    <div className="mt-2 text-xs">Assign to:</div>
                    <div className="flex gap-1 mt-1 overflow-x-auto">
                      {interviewers.map(int => (

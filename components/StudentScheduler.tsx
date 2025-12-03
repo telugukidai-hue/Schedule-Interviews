@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, InterviewSlot, Stage, BlockedSlot, HOURS_START, HOURS_END } from '../types';
 import { CheckCircle, Calendar as CalendarIcon, Clock, ChevronRight, ChevronLeft, Building2, Ban, AlertTriangle, RefreshCw, Info } from 'lucide-react';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, startOfToday, isToday, startOfWeek, endOfWeek } from 'date-fns';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, startOfToday, isToday, startOfWeek, endOfWeek, parseISO } from 'date-fns';
 import { Button } from './Button';
 
 interface StudentSchedulerProps {
@@ -215,7 +215,7 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({
                     <div>
                       <p className="text-xs text-slate-500 uppercase font-bold tracking-wider mb-1">Date & Time</p>
                       <p className="font-bold text-slate-900 text-lg">
-                        {format(new Date(interview.date), 'MMM do')} at {interview.startTime}
+                        {format(parseISO(interview.date), 'MMM do')} at {interview.startTime}
                       </p>
                       <p className="text-sm text-slate-600 mt-1">{interview.durationMinutes} Minutes</p>
                     </div>

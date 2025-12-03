@@ -9,9 +9,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     define: {
-      // Prevents "process is not defined" error in browser
-      'process.env': {}, 
-      // Injects the API Key specifically
+      // Safely replace process.env.API_KEY with the string value
       'process.env.API_KEY': JSON.stringify(env.API_KEY),
     },
   };

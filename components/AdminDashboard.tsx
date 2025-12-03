@@ -5,6 +5,7 @@ import { KanbanBoard } from './KanbanBoard';
 import { InterviewerGrid } from './InterviewerGrid';
 import { Button } from './Button';
 import { Users, LayoutDashboard, UserCheck, UserPlus, Plus, CalendarOff, Trash2 } from 'lucide-react';
+import { parseISO } from 'date-fns';
 
 interface AdminDashboardProps {
   users: User[];
@@ -285,7 +286,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                  blockedSlots.map(block => (
                    <div key={block.id} className="bg-white p-3 rounded-lg border border-red-100 flex justify-between items-center shadow-sm">
                      <div>
-                       <div className="font-medium text-slate-800">{new Date(block.date).toLocaleDateString()}</div>
+                       <div className="font-medium text-slate-800">{parseISO(block.date).toLocaleDateString()}</div>
                        <div className="text-xs text-red-500 font-mono">{block.startTime} - {block.endTime}</div>
                      </div>
                      <button 

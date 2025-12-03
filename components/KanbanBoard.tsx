@@ -1,6 +1,8 @@
+
 import React from 'react';
 import { Stage, InterviewSlot, User } from '../types';
 import { User as UserIcon } from 'lucide-react';
+import { parseISO } from 'date-fns';
 
 interface KanbanBoardProps {
   interviews: InterviewSlot[];
@@ -47,7 +49,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ interviews, users, onU
                     </div>
                   </div>
                   <div className="text-xs text-slate-500 mb-3 ml-8">
-                    {new Date(interview.date).toLocaleDateString()} at {interview.startTime}
+                    {parseISO(interview.date).toLocaleDateString()} at {interview.startTime}
                   </div>
                   
                   {/* Quick move actions */}
