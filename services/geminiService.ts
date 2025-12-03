@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 
 // Robust check for API key availability without throwing immediately on load
@@ -28,6 +29,6 @@ export const generateInterviewQuestions = async (stage: string, candidateName: s
     return response.text || "Could not generate questions.";
   } catch (error) {
     console.error("Gemini API Error:", error);
-    return "Error connecting to AI service.";
+    return "Could not generate AI questions at this time.";
   }
 };

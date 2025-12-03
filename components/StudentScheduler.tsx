@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, InterviewSlot, Stage, BlockedSlot, HOURS_START, HOURS_END } from '../types';
-import { CheckCircle, Calendar as CalendarIcon, Clock, ChevronRight, ChevronLeft, Building2, Trash2, Ban } from 'lucide-react';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, startOfToday, isToday, addMinutes, parse, startOfWeek, endOfWeek } from 'date-fns';
+import { CheckCircle, Calendar as CalendarIcon, Clock, ChevronRight, ChevronLeft, Building2, Ban, AlertTriangle, RefreshCw, Info } from 'lucide-react';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, startOfToday, isToday, startOfWeek, endOfWeek } from 'date-fns';
 import { Button } from './Button';
 
 interface StudentSchedulerProps {
@@ -19,23 +19,40 @@ const isTimeOverlapping = (start1: number, end1: number, start2: number, end2: n
 };
 
 const timeToMinutes = (time: string) => {
-  const [h, m] = time.split(':').map(Number);
+  if (!time) return 0;
+  const parts = time.split(':');
+  if (parts.length !== 2) return 0;
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
   return h * 60 + m;
 };
 
-export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, interviews, blockedSlots, onSchedule, onCancel }) => {
-  const [currentMonth, setCurrentMonth] = useState(startOfToday());
+export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ 
+  student, 
+  interviews = [], 
+  blockedSlots = [], 
+  onSchedule, 
+  onCancel 
+}) => {
+  const [currentMonth, setCurrentMonth] = useState(() => startOfToday());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
   const [companyName, setCompanyName] = useState('');
+  const [feedbackMsg, setFeedbackMsg] = useState<{type: 'success' | 'info', text: string} | null>(null);
   
   // Slot Status: 'available' | 'booked' (Yellow) | 'mine' (Green) | 'blocked' (Red)
   const [slotStatuses, setSlotStatuses] = useState<{time: string, status: string}[]>([]);
   
   // Confirmation Modal
   const [pendingSlot, setPendingSlot] = useState<string | null>(null);
+  
+  // Cancel/Reschedule Modal
+  const [interviewToCancel, setInterviewToCancel] = useState<string | null>(null);
 
-  const myInterviews = interviews.filter(i => i.studentId === student.id && (i.stage === Stage.CLASSES || i.stage === Stage.INTERVIEWS));
+  // Safety check for student prop
+  if (!student) return null;
+
+  const myInterviews = (interviews || []).filter(i => i.studentId === student.id && (i.stage === Stage.CLASSES || i.stage === Stage.INTERVIEWS));
 
   // Durations
   const durations = [
@@ -45,11 +62,11 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
     { label: '2 Hours', value: 120 },
   ];
 
-  // Calendar Logic
+  // Calendar Logic - Explicit weekStartsOn to avoid locale issues
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(monthStart);
-  const startDate = startOfWeek(monthStart);
-  const endDate = endOfWeek(monthEnd);
+  const startDate = startOfWeek(monthStart, { weekStartsOn: 0 });
+  const endDate = endOfWeek(monthEnd, { weekStartsOn: 0 });
 
   const calendarDays = eachDayOfInterval({
     start: startDate,
@@ -58,7 +75,12 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
 
   useEffect(() => {
     if (selectedDate && duration) {
-      calculateSlots();
+      try {
+        calculateSlots();
+      } catch (e) {
+        console.error("Error calculating slots:", e);
+        setSlotStatuses([]);
+      }
     } else {
       setSlotStatuses([]);
     }
@@ -71,15 +93,18 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
     const newSlots: {time: string, status: string}[] = [];
     
     // Existing interviews on this day
-    const daysInterviews = interviews.filter(i => i.date === dateStr && (i.stage === Stage.CLASSES || i.stage === Stage.INTERVIEWS));
+    const daysInterviews = (interviews || []).filter(i => i.date === dateStr && (i.stage === Stage.CLASSES || i.stage === Stage.INTERVIEWS));
     
     // Blocked slots on this day
-    const daysBlocked = blockedSlots.filter(b => b.date === dateStr);
+    const daysBlocked = (blockedSlots || []).filter(b => b.date === dateStr);
 
     let currentTimeMinutes = HOURS_START * 60; 
     const latestStartTimeMinutes = HOURS_END * 60;
 
-    while (currentTimeMinutes <= latestStartTimeMinutes) {
+    // Safety break loop
+    let loops = 0;
+    while (currentTimeMinutes <= latestStartTimeMinutes && loops < 100) {
+      loops++;
       const h = Math.floor(currentTimeMinutes / 60);
       const m = currentTimeMinutes % 60;
       const timeString = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
@@ -137,14 +162,31 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
     if (selectedDate && duration && pendingSlot && companyName.trim()) {
       onSchedule(format(selectedDate, 'yyyy-MM-dd'), pendingSlot, duration, companyName);
       setPendingSlot(null);
-      // Reset after booking
       setCompanyName('');
+      setFeedbackMsg({ type: 'success', text: 'Interview scheduled successfully!' });
+      setTimeout(() => setFeedbackMsg(null), 5000);
+    }
+  };
+
+  const handleConfirmCancel = () => {
+    if (interviewToCancel) {
+      onCancel(interviewToCancel);
+      setInterviewToCancel(null);
+      // Feedback to user
+      setFeedbackMsg({ type: 'info', text: 'Booking cancelled. Please select a new slot below.' });
+      
+      // Scroll to calendar to encourage re-booking
+      setTimeout(() => {
+        document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+      
+      setTimeout(() => setFeedbackMsg(null), 8000);
     }
   };
 
   if (!student.approved) {
     return (
-      <div className="max-w-md mx-auto mt-20 text-center p-10 bg-amber-50 rounded-2xl border border-amber-200 text-amber-900 shadow-sm">
+      <div className="max-w-md mx-auto mt-20 text-center p-10 bg-amber-50 rounded-2xl border border-amber-200 text-amber-900 shadow-sm animate-in fade-in">
         <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
           <Clock className="w-8 h-8 text-amber-600" />
         </div>
@@ -157,11 +199,11 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-12 pb-20">
+    <div className="max-w-6xl mx-auto space-y-12 pb-20 animate-in fade-in">
       
       {/* 1. My Scheduled Interviews Section */}
       {myInterviews.length > 0 && (
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 animate-in slide-in-from-top-4 duration-500">
+        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
            <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2">
              <CheckCircle className="text-green-600" /> Your Scheduled Interviews
            </h2>
@@ -186,14 +228,10 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
                  </div>
                  <div className="mt-5 pt-4 border-t border-slate-100 flex justify-end">
                     <button 
-                      onClick={() => {
-                        if(confirm('Are you sure you want to cancel this interview? You can reschedule by booking a new slot.')) {
-                          onCancel(interview.id);
-                        }
-                      }}
-                      className="text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1 bg-white border border-red-100 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors"
+                      onClick={() => setInterviewToCancel(interview.id)}
+                      className="text-xs text-slate-600 hover:text-blue-600 font-medium flex items-center gap-1 bg-slate-50 border border-slate-200 hover:bg-blue-50 hover:border-blue-200 px-3 py-1.5 rounded-lg transition-all"
                     >
-                      <Trash2 size={14} /> Cancel / Reschedule
+                      <RefreshCw size={14} /> Reschedule / Cancel
                     </button>
                  </div>
                </div>
@@ -203,13 +241,21 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
       )}
 
       {/* 2. New Booking Section */}
-      <div className="space-y-8">
+      <div id="booking-section" className="space-y-8">
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold text-slate-900">
             {myInterviews.length > 0 ? 'Book Another Slot' : 'Book Your Interview'}
           </h1>
           <p className="text-slate-500 text-lg">Select a date, duration, and time slot.</p>
         </div>
+
+        {/* Feedback Message */}
+        {feedbackMsg && (
+          <div className={`max-w-2xl mx-auto p-4 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2 ${feedbackMsg.type === 'success' ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-blue-100 text-blue-800 border border-blue-200'}`}>
+             {feedbackMsg.type === 'success' ? <CheckCircle className="w-5 h-5"/> : <Info className="w-5 h-5"/>}
+             <p className="font-medium">{feedbackMsg.text}</p>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
@@ -244,7 +290,7 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
 
                   return (
                     <button
-                      key={date.toString()}
+                      key={date.toISOString()}
                       disabled={isPast}
                       onClick={() => setSelectedDate(date)}
                       className={`
@@ -257,7 +303,6 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
                         ${isTodayDate && !isSelected ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
                       `}
                     >
-                      {/* Only show month name on first day of month or first day of grid */}
                       {isCurrentMonth && (
                          <span className={`text-[10px] ${isSelected ? 'text-blue-200' : 'text-slate-400'}`}>
                            {format(date, 'MMM')}
@@ -402,6 +447,37 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
                  </Button>
                </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel/Reschedule Warning Modal */}
+      {interviewToCancel && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+             <div className="bg-amber-500 p-6 text-white">
+               <h3 className="text-xl font-bold flex items-center gap-2">
+                 <AlertTriangle className="w-6 h-6" /> Reschedule Interview
+               </h3>
+               <p className="text-amber-100 mt-1">Cancellation required</p>
+             </div>
+             <div className="p-6 space-y-4">
+               <p className="text-slate-600 text-sm leading-relaxed">
+                 To reschedule, we must first <strong>cancel your current booking</strong>. 
+                 Once cancelled, the slot will be released, and you can immediately select a new date and time from the calendar below.
+               </p>
+               <div className="bg-amber-50 p-3 rounded-lg border border-amber-100">
+                 <p className="text-xs text-amber-800 font-semibold">
+                   Are you sure you want to proceed?
+                 </p>
+               </div>
+               <div className="flex gap-3 pt-4">
+                 <Button variant="secondary" className="flex-1" onClick={() => setInterviewToCancel(null)}>Keep Booking</Button>
+                 <Button variant="danger" className="flex-1" onClick={handleConfirmCancel}>
+                   Yes, Cancel & Reschedule
+                 </Button>
+               </div>
+             </div>
           </div>
         </div>
       )}
