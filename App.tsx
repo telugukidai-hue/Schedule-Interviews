@@ -148,7 +148,7 @@ const App = () => {
           <div className="absolute bottom-[-20%] left-[20%] w-[40%] h-[40%] bg-pink-200/30 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-4000"></div>
         </div>
 
-        <div className="absolute top-4 right-4 z-10">
+        <div className="absolute top-4 right-4 z-50">
           <Button 
             variant="ghost" 
             onClick={() => setAuthView(authView === 'student' ? 'admin' : 'student')}

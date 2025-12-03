@@ -1,12 +1,12 @@
 
 import { User, Role, InterviewSlot, BlockedSlot } from '../types';
 
-const STORAGE_KEY = 'interview_flow_db_v3';
+const STORAGE_KEY = 'interview_flow_db_v4';
 
 const INITIAL_ADMIN: User = {
   id: 'admin-1',
-  name: 'aikidspro',
-  phone: 'admin',
+  name: 'Administrator',
+  phone: 'aikidspro', // Username field
   role: Role.ADMIN,
   password: '85230',
   approved: true
