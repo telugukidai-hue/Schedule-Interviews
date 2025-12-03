@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, InterviewSlot, Stage, BlockedSlot, HOURS_START, HOURS_END } from '../types';
-import { CheckCircle, Calendar as CalendarIcon, Clock, ChevronRight, ChevronLeft, Building2, Trash2, Ban } from 'lucide-react';
+import { CheckCircle, Calendar as CalendarIcon, Clock, ChevronRight, ChevronLeft, Building2, Trash2, Ban, AlertTriangle, RefreshCw } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, startOfToday, isToday, addMinutes, parse, startOfWeek, endOfWeek } from 'date-fns';
 import { Button } from './Button';
 
@@ -34,6 +34,9 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
   
   // Confirmation Modal
   const [pendingSlot, setPendingSlot] = useState<string | null>(null);
+  
+  // Cancel/Reschedule Modal
+  const [interviewToCancel, setInterviewToCancel] = useState<string | null>(null);
 
   const myInterviews = interviews.filter(i => i.studentId === student.id && (i.stage === Stage.CLASSES || i.stage === Stage.INTERVIEWS));
 
@@ -142,6 +145,17 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
     }
   };
 
+  const handleConfirmCancel = () => {
+    if (interviewToCancel) {
+      onCancel(interviewToCancel);
+      setInterviewToCancel(null);
+      // Scroll to calendar to encourage re-booking
+      setTimeout(() => {
+        document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth' });
+      }, 300);
+    }
+  };
+
   if (!student.approved) {
     return (
       <div className="max-w-md mx-auto mt-20 text-center p-10 bg-amber-50 rounded-2xl border border-amber-200 text-amber-900 shadow-sm">
@@ -186,14 +200,10 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
                  </div>
                  <div className="mt-5 pt-4 border-t border-slate-100 flex justify-end">
                     <button 
-                      onClick={() => {
-                        if(confirm('Are you sure you want to cancel this interview? You can reschedule by booking a new slot.')) {
-                          onCancel(interview.id);
-                        }
-                      }}
-                      className="text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1 bg-white border border-red-100 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors"
+                      onClick={() => setInterviewToCancel(interview.id)}
+                      className="text-xs text-slate-600 hover:text-blue-600 font-medium flex items-center gap-1 bg-slate-50 border border-slate-200 hover:bg-blue-50 hover:border-blue-200 px-3 py-1.5 rounded-lg transition-all"
                     >
-                      <Trash2 size={14} /> Cancel / Reschedule
+                      <RefreshCw size={14} /> Reschedule / Cancel
                     </button>
                  </div>
                </div>
@@ -203,7 +213,7 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
       )}
 
       {/* 2. New Booking Section */}
-      <div className="space-y-8">
+      <div id="booking-section" className="space-y-8">
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold text-slate-900">
             {myInterviews.length > 0 ? 'Book Another Slot' : 'Book Your Interview'}
@@ -402,6 +412,37 @@ export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ student, int
                  </Button>
                </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel/Reschedule Warning Modal */}
+      {interviewToCancel && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+             <div className="bg-amber-500 p-6 text-white">
+               <h3 className="text-xl font-bold flex items-center gap-2">
+                 <AlertTriangle className="w-6 h-6" /> Reschedule Interview
+               </h3>
+               <p className="text-amber-100 mt-1">Cancellation required</p>
+             </div>
+             <div className="p-6 space-y-4">
+               <p className="text-slate-600 text-sm leading-relaxed">
+                 To reschedule, we must first <strong>cancel your current booking</strong>. 
+                 Once cancelled, the slot will be released, and you can immediately select a new date and time from the calendar below.
+               </p>
+               <div className="bg-amber-50 p-3 rounded-lg border border-amber-100">
+                 <p className="text-xs text-amber-800 font-semibold">
+                   Are you sure you want to proceed?
+                 </p>
+               </div>
+               <div className="flex gap-3 pt-4">
+                 <Button variant="secondary" className="flex-1" onClick={() => setInterviewToCancel(null)}>Keep Booking</Button>
+                 <Button variant="danger" className="flex-1" onClick={handleConfirmCancel}>
+                   Yes, Cancel & Reschedule
+                 </Button>
+               </div>
+             </div>
           </div>
         </div>
       )}
