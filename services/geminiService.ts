@@ -1,19 +1,9 @@
-
 import { GoogleGenAI } from "@google/genai";
 
-// Robust check for API key availability without throwing immediately on load
-const getClient = () => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    console.warn("Gemini API Key is missing. AI features will be disabled.");
-    return null;
-  }
-  return new GoogleGenAI({ apiKey });
-};
-
 export const generateInterviewQuestions = async (stage: string, candidateName: string): Promise<string> => {
-  const ai = getClient();
-  if (!ai) return "AI service unavailable. Please configure API_KEY.";
+  // Always use const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
+  // The API key is assumed to be available via process.env.API_KEY.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   try {
     const prompt = `Generate 3 concise, high-impact interview questions for a candidate named ${candidateName} who is currently in the '${stage}' stage of the hiring process. 
