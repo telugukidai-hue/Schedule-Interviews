@@ -14,8 +14,6 @@ export default defineConfig(({ mode }) => {
       'global': 'window',
       // Strictly replace process.env.API_KEY with the string value.
       'process.env.API_KEY': JSON.stringify(env.API_KEY || ''),
-      // We do NOT define 'process.env': {} here to allow the window.process polyfill 
-      // in index.html to handle other process.env accesses safely.
     },
     build: {
       outDir: 'dist',
