@@ -10,11 +10,12 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     define: {
+      // Define global specifically for some older libraries
+      'global': 'window',
       // Strictly replace process.env.API_KEY with the string value.
-      // This allows the code to run in the browser without "process" being defined.
       'process.env.API_KEY': JSON.stringify(env.API_KEY || ''),
-      // Polyfill NODE_ENV just in case libraries check it
-      'process.env.NODE_ENV': JSON.stringify(mode),
+      // Prevent crashes if code accesses process.env
+      'process.env': {},
     },
     build: {
       outDir: 'dist',

@@ -33,6 +33,11 @@
         }
       }
     </script>
+    <script>
+      // Polyfill for libraries that expect 'global' or 'process' to exist
+      window.global = window;
+      window.process = { env: {} };
+    </script>
     <style>
       /* Custom Scrollbar for nicer UI in panels */
       .custom-scrollbar::-webkit-scrollbar {
@@ -50,7 +55,7 @@
         background: #94a3b8;
       }
     </style>
-  <script type="importmap">
+<script type="importmap">
 {
   "imports": {
     "react": "https://aistudiocdn.com/react@^19.2.1",
