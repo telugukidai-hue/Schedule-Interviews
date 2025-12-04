@@ -35,8 +35,12 @@
     </script>
     <script>
       // Polyfill for libraries that expect 'global' or 'process' to exist
-      window.global = window;
-      window.process = { env: {} };
+      if (typeof global === 'undefined') {
+        window.global = window;
+      }
+      if (typeof process === 'undefined') {
+        window.process = { env: {} };
+      }
     </script>
     <style>
       /* Custom Scrollbar for nicer UI in panels */
