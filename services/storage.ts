@@ -1,5 +1,5 @@
 
-import { User, Role, InterviewSlot, BlockedSlot } from '../types';
+import { User, Role, InterviewSlot, BlockedSlot, Notification } from '../types';
 
 const STORAGE_KEY = 'interview_flow_db_v4';
 
@@ -7,6 +7,7 @@ const INITIAL_ADMIN: User = {
   id: 'admin-1',
   name: 'Administrator',
   phone: 'aikidspro', // Username field
+  email: 'admin@aikids.com',
   role: Role.ADMIN,
   password: '85230',
   approved: true
@@ -19,6 +20,7 @@ interface DB {
   users: User[];
   interviews: InterviewSlot[];
   blockedSlots: BlockedSlot[];
+  notifications: Notification[];
 }
 
 export const loadData = (): DB => {
@@ -29,7 +31,8 @@ export const loadData = (): DB => {
       return {
         users: Array.isArray(parsed.users) ? parsed.users : [INITIAL_ADMIN],
         interviews: Array.isArray(parsed.interviews) ? parsed.interviews : [],
-        blockedSlots: Array.isArray(parsed.blockedSlots) ? parsed.blockedSlots : []
+        blockedSlots: Array.isArray(parsed.blockedSlots) ? parsed.blockedSlots : [],
+        notifications: Array.isArray(parsed.notifications) ? parsed.notifications : []
       };
     } catch (e) {
       console.error("Failed to parse storage, resetting DB", e);
@@ -38,7 +41,8 @@ export const loadData = (): DB => {
   return {
     users: [INITIAL_ADMIN, ...INITIAL_INTERVIEWERS],
     interviews: [],
-    blockedSlots: []
+    blockedSlots: [],
+    notifications: []
   };
 };
 

@@ -15,7 +15,8 @@ export enum Stage {
 export interface User {
   id: string;
   name: string;
-  phone: string; // Used as ID for students
+  phone: string; // Used as ID for students, Username for interviewers
+  email?: string; // For Google Calendar invites
   role: Role;
   password?: string; // For Admin/Interviewer
   approved: boolean; // For Students
@@ -40,6 +41,14 @@ export interface BlockedSlot {
   reason?: string;
 }
 
+export interface Notification {
+  id: string;
+  userId: string;
+  message: string;
+  read: boolean;
+  timestamp?: string;
+}
+
 export const HOURS_START = 9; // 9 AM
 export const HOURS_END = 20.5; // 8:30 PM
 
@@ -57,7 +66,7 @@ export interface AuthContextType {
   logout: () => void;
   registerStudent: (name: string, phone: string) => Promise<boolean>;
   approveStudent: (studentId: string) => void;
-  createInterviewer: (name: string, username: string, password: string) => void;
+  createInterviewer: (name: string, username: string, password: string, email: string) => void;
   scheduleInterview: (studentId: string, date: string, startTime: string, duration: number, companyName: string) => void;
   updateInterviewStage: (interviewId: string, newStage: Stage) => void;
   assignInterviewer: (interviewId: string, interviewerId: string) => void;

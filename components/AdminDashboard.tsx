@@ -4,8 +4,8 @@ import { User, InterviewSlot, Stage, Role, BlockedSlot } from '../types';
 import { KanbanBoard } from './KanbanBoard';
 import { InterviewerGrid } from './InterviewerGrid';
 import { Button } from './Button';
-import { Users, LayoutDashboard, UserCheck, UserPlus, Plus, CalendarOff, Trash2 } from 'lucide-react';
-import { parseISO } from 'date-fns';
+import { Users, LayoutDashboard, UserCheck, UserPlus, Plus, CalendarOff, Trash2, Mail } from 'lucide-react';
+import { parseISO, format } from 'date-fns';
 
 interface AdminDashboardProps {
   users: User[];
@@ -14,9 +14,11 @@ interface AdminDashboardProps {
   onApprove: (id: string) => void;
   onUpdateStage: (id: string, stage: Stage) => void;
   onAssign: (interviewId: string, interviewerId: string) => void;
-  onCreateInterviewer: (name: string, username: string, pass: string) => void;
+  onCreateInterviewer: (name: string, username: string, pass: string, email: string) => void;
   onBlockSlot: (date: string, start: string, end: string) => void;
   onDeleteBlock: (id: string) => void;
+  onAddCandidate: (name: string, phone: string) => void;
+  onCancel: (interviewId: string) => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -28,17 +30,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onAssign,
   onCreateInterviewer,
   onBlockSlot,
-  onDeleteBlock
+  onDeleteBlock,
+  onAddCandidate,
+  onCancel
 }) => {
   const [activeTab, setActiveTab] = useState<'pipeline' | 'approvals' | 'scheduling' | 'create_interviewer' | 'availability'>('pipeline');
   
-  // Form state for creating interviewer
   const [newIntName, setNewIntName] = useState('');
   const [newIntUsername, setNewIntUsername] = useState('');
   const [newIntPass, setNewIntPass] = useState('');
+  const [newIntEmail, setNewIntEmail] = useState('');
   const [createMsg, setCreateMsg] = useState('');
 
-  // Form state for blocking
   const [blockDate, setBlockDate] = useState('');
   const [blockStart, setBlockStart] = useState('09:00');
   const [blockEnd, setBlockEnd] = useState('17:00');
@@ -49,10 +52,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleCreateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (newIntName && newIntUsername && newIntPass) {
-      onCreateInterviewer(newIntName, newIntUsername, newIntPass);
+      onCreateInterviewer(newIntName, newIntUsername, newIntPass, newIntEmail);
       setNewIntName('');
       setNewIntUsername('');
       setNewIntPass('');
+      setNewIntEmail('');
       setCreateMsg('Interviewer created successfully!');
       setTimeout(() => setCreateMsg(''), 3000);
     }
@@ -61,6 +65,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleBlockSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (blockDate && blockStart && blockEnd) {
+      // Check if any student has booked a slot in this range
+      // We need to parse times to minutes to check overlap
+      const startMin = parseInt(blockStart.split(':')[0]) * 60 + parseInt(blockStart.split(':')[1]);
+      const endMin = parseInt(blockEnd.split(':')[0]) * 60 + parseInt(blockEnd.split(':')[1]);
+      
+      const conflicts = interviews.filter(i => {
+        if (i.date !== blockDate) return false;
+        if (i.durationMinutes === 0) return false; // Ignore placeholders
+        
+        const iStart = parseInt(i.startTime.split(':')[0]) * 60 + parseInt(i.startTime.split(':')[1]);
+        const iEnd = iStart + i.durationMinutes;
+        // Overlap logic: (StartA < EndB) and (EndA > StartB)
+        return Math.max(startMin, iStart) < Math.min(endMin, iEnd);
+      });
+
+      if (conflicts.length > 0) {
+        const studentNames = conflicts.map(c => users.find(u => u.id === c.studentId)?.name).join(', ');
+        // Use alert or set error state
+        alert(`Cannot block this slot. The following students have bookings: ${studentNames}. Please cancel their interviews first.`);
+        return;
+      }
+
       onBlockSlot(blockDate, blockStart, blockEnd);
       setBlockDate('');
     }
@@ -120,7 +146,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <KanbanBoard 
           interviews={interviews} 
           users={users} 
-          onUpdateStage={onUpdateStage} 
+          onUpdateStage={onUpdateStage}
+          onAddCandidate={onAddCandidate}
         />
       )}
 
@@ -128,7 +155,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="bg-slate-100 p-6 rounded-2xl border border-slate-200">
            <div className="mb-4 flex justify-between items-center">
              <h2 className="text-lg font-bold text-slate-700">Interviewer Allocation</h2>
-             <span className="text-sm text-slate-500 bg-white px-3 py-1 rounded-full shadow-sm">Drag or use "Move" to reassign</span>
+             <span className="text-sm text-slate-500 bg-white px-3 py-1 rounded-full shadow-sm">Drag to reassign</span>
            </div>
            <InterviewerGrid 
             interviews={interviews}
@@ -136,6 +163,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             users={users}
             onAssign={onAssign}
             canMove={true}
+            onAddStaff={() => setActiveTab('create_interviewer')}
+            onCancel={onCancel}
           />
         </div>
       )}
@@ -201,6 +230,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   />
                 </div>
                 <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                    <input 
+                      type="email" 
+                      required
+                      value={newIntEmail}
+                      onChange={e => setNewIntEmail(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                      placeholder="john@company.com"
+                    />
+                  </div>
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Username (Login)</label>
                   <input 
                     type="text" 
@@ -232,7 +275,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {activeTab === 'availability' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Add Block Form */}
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
              <h3 className="font-bold text-lg mb-4 text-slate-800 flex items-center gap-2">
                <CalendarOff className="text-red-500" /> Block Slots (Unavailable)
@@ -276,7 +318,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
              </form>
           </div>
 
-          {/* List Blocked Slots */}
           <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 overflow-hidden flex flex-col">
              <h3 className="font-bold text-lg mb-4 text-slate-800">Current Blocks</h3>
              <div className="flex-1 overflow-y-auto space-y-2 pr-2">
@@ -286,7 +327,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                  blockedSlots.map(block => (
                    <div key={block.id} className="bg-white p-3 rounded-lg border border-red-100 flex justify-between items-center shadow-sm">
                      <div>
-                       <div className="font-medium text-slate-800">{parseISO(block.date).toLocaleDateString()}</div>
+                       <div className="font-medium text-slate-800">{format(parseISO(block.date), 'dd MMM yyyy')}</div>
                        <div className="text-xs text-red-500 font-mono">{block.startTime} - {block.endTime}</div>
                      </div>
                      <button 
