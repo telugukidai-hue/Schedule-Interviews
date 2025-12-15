@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Role } from '../types';
 import { Button } from './Button';
@@ -5,12 +6,13 @@ import { Lock, User, Phone, LogIn } from 'lucide-react';
 
 interface AuthProps {
   mode: 'student' | 'admin';
-  onLogin: (identifier: string, pass: string, role: Role) => boolean;
-  onRegister: (name: string, phone: string) => boolean;
+  onLogin: (identifier: string, pass: string, role: Role) => boolean | Promise<boolean>;
+  onRegister: (name: string, phone: string) => boolean | Promise<boolean>;
 }
 
 export const Auth: React.FC<AuthProps> = ({ mode, onLogin, onRegister }) => {
   const [isRegistering, setIsRegistering] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   
   // Form State
   const [name, setName] = useState('');
@@ -18,36 +20,57 @@ export const Auth: React.FC<AuthProps> = ({ mode, onLogin, onRegister }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setIsLoading(true);
 
-    if (mode === 'student') {
-      if (isRegistering) {
-        if (!name || !phone) return setError("All fields required");
-        const success = onRegister(name, phone);
-        if (!success) setError("Phone number already registered.");
+    try {
+      if (mode === 'student') {
+        if (isRegistering) {
+          if (!name || !phone) {
+            setError("All fields required");
+            setIsLoading(false);
+            return;
+          }
+          const success = await onRegister(name, phone);
+          if (!success) {
+            setError("Phone number already registered.");
+            setIsLoading(false);
+          }
+          // If success, parent component usually updates state/unmounts this, 
+          // but we unset loading just in case.
+        } else {
+          if (!name || !phone) {
+            setError("All fields required");
+            setIsLoading(false);
+            return;
+          }
+          const success = await onLogin(name, phone, Role.STUDENT);
+          if (!success) {
+            setError("Invalid Name or Phone");
+            setIsLoading(false);
+          }
+        }
       } else {
-        if (!name || !phone) return setError("All fields required");
-        const success = onLogin(name, phone, Role.STUDENT);
-        if (!success) setError("Invalid Name or Phone");
-      }
-    } else {
-      // Admin / Interviewer Login
-      // We try Admin first, then Interviewer in logic, or pass a flag? 
-      // Simplified: The App.tsx `handleLogin` checks role. 
-      // But we need to know WHICH role to pass.
-      // Let's assume the user selects role in a dropdown or we try both.
-      // Based on prompt: "Admin will give username and password... admin will have web admin password".
-      // Let's deduce role based on success.
-      
-      const successAdmin = onLogin(name, password, Role.ADMIN);
-      if (successAdmin) return;
-      
-      const successInt = onLogin(name, password, Role.INTERVIEWER);
-      if (successInt) return;
+        // Admin / Interviewer Login
+        const successAdmin = await onLogin(name, password, Role.ADMIN);
+        if (successAdmin) {
+           return;
+        }
+        
+        const successInt = await onLogin(name, password, Role.INTERVIEWER);
+        if (successInt) {
+           return;
+        }
 
-      setError("Invalid Credentials");
+        setError("Invalid Credentials");
+        setIsLoading(false);
+      }
+    } catch (err) {
+      console.error(err);
+      setError("An unexpected error occurred.");
+      setIsLoading(false);
     }
   };
 
@@ -118,7 +141,7 @@ export const Auth: React.FC<AuthProps> = ({ mode, onLogin, onRegister }) => {
             )}
           </div>
 
-          <Button type="submit" className="w-full justify-center">
+          <Button type="submit" className="w-full justify-center" isLoading={isLoading}>
             {mode === 'student' && isRegistering ? 'Register Now' : 'Sign In'}
             <LogIn className="w-4 h-4 ml-2" />
           </Button>
