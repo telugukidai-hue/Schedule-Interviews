@@ -13,13 +13,15 @@ const fromDbUser = (u: any): User => ({
   approved: u.approved
 });
 
+// Helper to Map App (camelCase) to DB (snake_case)
+// Converting undefined to null to strictly satisfy Supabase/Postgres constraints
 const toDbUser = (u: User) => ({
   id: u.id,
   name: u.name,
   phone: u.phone,
-  email: u.email,
+  email: u.email || null,
   role: u.role,
-  password: u.password,
+  password: u.password || null,
   approved: u.approved
 });
 
@@ -37,12 +39,12 @@ const fromDbInterview = (i: any): InterviewSlot => ({
 const toDbInterview = (i: InterviewSlot) => ({
   id: i.id,
   student_id: i.studentId,
-  interviewer_id: i.interviewerId,
+  interviewer_id: i.interviewerId || null,
   date: i.date,
   start_time: i.startTime,
   duration_minutes: i.durationMinutes,
   stage: i.stage,
-  company_name: i.companyName
+  company_name: i.companyName || null
 });
 
 const fromDbBlock = (b: any): BlockedSlot => ({
@@ -58,7 +60,7 @@ const toDbBlock = (b: BlockedSlot) => ({
   date: b.date,
   start_time: b.startTime,
   end_time: b.endTime,
-  reason: b.reason
+  reason: b.reason || null
 });
 
 const fromDbNotif = (n: any): Notification => ({
@@ -74,7 +76,7 @@ const toDbNotif = (n: Notification) => ({
   user_id: n.userId,
   message: n.message,
   read: n.read,
-  timestamp: n.timestamp
+  timestamp: n.timestamp || null
 });
 
 // Use a UUID for the initial admin to ensure compatibility with UUID-typed primary keys
@@ -95,50 +97,45 @@ export const api = {
       const { data: usersData, error: usersError } = await supabase.from('users').select('*');
       if (usersError) {
         console.error('Error fetching users:', usersError);
-        throw usersError;
+        // Do not throw here, allow partial loading if possible, or handle gracefully
       }
 
       let users = (usersData || []).map(fromDbUser);
 
-      // Handle Initial Admin if DB is empty
+      // Handle Initial Admin if DB is empty or connection failed (fallback mode)
+      // If the DB is completely empty (no users), we try to insert the admin.
       if (users.length === 0) {
+        // Try to insert
         const { error: insertError } = await supabase.from('users').insert([toDbUser(INITIAL_ADMIN)]);
         if (!insertError) {
            users = [INITIAL_ADMIN];
         } else {
-           console.error('Error creating initial admin:', insertError);
+           console.error('Error creating initial admin (Check RLS Policies):', insertError);
+           // Fallback to in-memory admin so user isn't locked out, but warn them
+           users = [INITIAL_ADMIN];
         }
       }
 
       // 2. Fetch Interviews
       const { data: intData, error: intError } = await supabase.from('interviews').select('*');
-      if (intError) {
-        console.error('Error fetching interviews:', intError);
-        throw intError;
-      }
+      if (intError) console.error('Error fetching interviews:', intError);
       const interviews = (intData || []).map(fromDbInterview);
 
       // 3. Fetch Blocks
       const { data: blockData, error: blockError } = await supabase.from('blocked_slots').select('*');
-      if (blockError) {
-        console.error('Error fetching blocks:', blockError);
-        throw blockError;
-      }
+      if (blockError) console.error('Error fetching blocks:', blockError);
       const blockedSlots = (blockData || []).map(fromDbBlock);
 
       // 4. Fetch Notifications
       const { data: notifData, error: notifError } = await supabase.from('notifications').select('*');
-      if (notifError) {
-        console.error('Error fetching notifications:', notifError);
-        throw notifError;
-      }
+      if (notifError) console.error('Error fetching notifications:', notifError);
       const notifications = (notifData || []).map(fromDbNotif);
 
       return { users, interviews, blockedSlots, notifications };
 
     } catch (e) {
-      console.error("Supabase Fetch Error:", e);
-      return { users: [], interviews: [], blockedSlots: [], notifications: [] };
+      console.error("Supabase Fetch Critical Error:", e);
+      return { users: [INITIAL_ADMIN], interviews: [], blockedSlots: [], notifications: [] };
     }
   },
 
@@ -153,9 +150,9 @@ export const api = {
     const dbUpdates: any = {};
     if (updates.name !== undefined) dbUpdates.name = updates.name;
     if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
-    if (updates.email !== undefined) dbUpdates.email = updates.email;
+    if (updates.email !== undefined) dbUpdates.email = updates.email || null;
     if (updates.role !== undefined) dbUpdates.role = updates.role;
-    if (updates.password !== undefined) dbUpdates.password = updates.password;
+    if (updates.password !== undefined) dbUpdates.password = updates.password || null;
     if (updates.approved !== undefined) dbUpdates.approved = updates.approved;
 
     const { error } = await supabase.from('users').update(dbUpdates).eq('id', id);
@@ -172,12 +169,12 @@ export const api = {
   updateInterview: async (id: string, updates: Partial<InterviewSlot>) => {
     const dbUpdates: any = {};
     if (updates.studentId !== undefined) dbUpdates.student_id = updates.studentId;
-    if (updates.interviewerId !== undefined) dbUpdates.interviewer_id = updates.interviewerId;
+    if (updates.interviewerId !== undefined) dbUpdates.interviewer_id = updates.interviewerId || null;
     if (updates.date !== undefined) dbUpdates.date = updates.date;
     if (updates.startTime !== undefined) dbUpdates.start_time = updates.startTime;
     if (updates.durationMinutes !== undefined) dbUpdates.duration_minutes = updates.durationMinutes;
     if (updates.stage !== undefined) dbUpdates.stage = updates.stage;
-    if (updates.companyName !== undefined) dbUpdates.company_name = updates.companyName;
+    if (updates.companyName !== undefined) dbUpdates.company_name = updates.companyName || null;
 
     const { error } = await supabase.from('interviews').update(dbUpdates).eq('id', id);
     if (error) console.error("Error updating interview:", error);

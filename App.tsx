@@ -56,6 +56,7 @@ const App = () => {
     init();
 
     // Subscribe to REALTIME changes from Supabase
+    // NOTE: You must enable Realtime for tables in Supabase Dashboard -> Database -> Replication
     const channel = supabase.channel('schema-db-changes')
       .on(
         'postgres_changes',
@@ -115,7 +116,7 @@ const App = () => {
     // DB Update
     const { error } = await api.createUser(newUser);
     if (error) {
-      alert("Failed to register. Please check internet connection or contact admin.");
+      alert(`Registration failed saving to database. \nError: ${error.message}\n\nPlease contact admin or check SETUP_SQL.md instructions.`);
       console.error("Registration failed:", error);
     }
     return true;
@@ -139,8 +140,12 @@ const App = () => {
     setAllUsers(prev => [...prev, newUser]);
     setInterviews(prev => [...prev, newInterview]);
 
-    await api.createUser(newUser);
-    await api.createInterview(newInterview);
+    const { error: uErr } = await api.createUser(newUser);
+    const { error: iErr } = await api.createInterview(newInterview);
+    
+    if (uErr || iErr) {
+        alert("Error saving candidate to database. Check console for details.");
+    }
   };
 
   const handleCreateInterviewer = async (name: string, username: string, pass: string, email: string) => {
@@ -154,7 +159,10 @@ const App = () => {
         approved: true
       };
       setAllUsers(prev => [...prev, newInt]);
-      await api.createUser(newInt);
+      const { error } = await api.createUser(newInt);
+      if (error) {
+          alert(`Error creating interviewer in DB: ${error.message}. \nPlease run the SQL setup script.`);
+      }
   };
 
   const handleLogout = () => {
@@ -180,8 +188,12 @@ const App = () => {
     setInterviews(prev => [...prev, newInterview]);
 
     // DB
-    await api.updateUser(studentId, { approved: true });
-    await api.createInterview(newInterview);
+    const { error: uErr } = await api.updateUser(studentId, { approved: true });
+    const { error: iErr } = await api.createInterview(newInterview);
+
+    if (uErr || iErr) {
+        alert("Failed to sync approval to database. It may not show on other devices.");
+    }
   };
 
   const handleSchedule = async (date: string, startTime: string, duration: number, companyName: string) => {
@@ -205,7 +217,9 @@ const App = () => {
       };
       
       setInterviews(prev => prev.map(i => i.id === existingPlaceholder.id ? { ...i, ...updates } : i));
-      await api.updateInterview(existingPlaceholder.id, updates);
+      const { error } = await api.updateInterview(existingPlaceholder.id, updates);
+      if (error) alert("Scheduling failed to save. Please try again.");
+
     } else {
       const newInterview: InterviewSlot = {
         id: crypto.randomUUID(),
@@ -218,7 +232,8 @@ const App = () => {
         companyName
       };
       setInterviews(prev => [...prev, newInterview]);
-      await api.createInterview(newInterview);
+      const { error } = await api.createInterview(newInterview);
+      if (error) alert("Scheduling failed to save. Please try again.");
     }
   };
 
