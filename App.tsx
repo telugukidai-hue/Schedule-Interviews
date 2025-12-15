@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { api } from './services/storage'; // This is now our Supabase API wrapper
-import { supabase } from './services/supabase';
+import { api } from './services/storage'; 
 import { User, Role, Stage, InterviewSlot, BlockedSlot, Notification } from './types';
 import { Auth } from './components/Auth';
 import { AdminDashboard } from './components/AdminDashboard';
@@ -31,7 +30,7 @@ const App = () => {
     setNotifications(data.notifications);
   };
 
-  // Initial Load & Realtime Subscription
+  // Initial Load & Event Subscription
   useEffect(() => {
     const init = async () => {
       await refreshData();
@@ -51,31 +50,18 @@ const App = () => {
 
     init();
 
-    // Realtime Subscription
-    const channel = supabase.channel('main_db_changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public' },
-        (payload) => {
-          console.log('Realtime change received!', payload);
-          refreshData(); // Simple strategy: refetch all on any change
-        }
-      )
-      .subscribe((status, err) => {
-        if (err) {
-          console.error("Realtime Connection Error:", err);
-        }
-        if (status === 'SUBSCRIBED') {
-          console.log("Connected to Realtime DB");
-        }
-      });
+    // Listen for local changes (same tab)
+    window.addEventListener('local_storage_update', refreshData);
+    // Listen for changes in other tabs
+    window.addEventListener('storage', refreshData);
 
     return () => {
-      supabase.removeChannel(channel);
+      window.removeEventListener('local_storage_update', refreshData);
+      window.removeEventListener('storage', refreshData);
     };
   }, []);
 
-  // Sync current user state if they are updated in DB
+  // Sync current user state if they are updated in storage
   useEffect(() => {
     if (user && allUsers.length > 0) {
       const freshUser = allUsers.find(u => u.id === user.id);
@@ -114,7 +100,7 @@ const App = () => {
     setUser(newUser);
     localStorage.setItem('interview_flow_session_user_id', newUser.id);
 
-    // DB Update
+    // Storage Update
     await api.createUser(newUser);
     return true;
   };
@@ -273,7 +259,7 @@ const App = () => {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-        <span className="ml-3 text-slate-500 font-medium">Connecting to Database...</span>
+        <span className="ml-3 text-slate-500 font-medium">Loading Application...</span>
       </div>
     );
   }
