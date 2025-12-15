@@ -104,7 +104,8 @@ const App = () => {
 
   const handleRegister = async (name: string, phone: string) => {
     if (allUsers.find(u => u.phone === phone)) return false;
-    const newUser: User = { id: `student-${Date.now()}`, name, phone, role: Role.STUDENT, approved: false };
+    // Use crypto.randomUUID() for DB compatibility if columns are UUID
+    const newUser: User = { id: crypto.randomUUID(), name, phone, role: Role.STUDENT, approved: false };
     
     // Optimistic Update
     setAllUsers(prev => [...prev, newUser]);
@@ -112,19 +113,20 @@ const App = () => {
     localStorage.setItem('interview_flow_session_user_id', newUser.id);
 
     // DB Update
-    await api.createUser(newUser);
-    // Refresh to ensure ID matches DB if needed, though we use generated IDs for now or let DB handle it. 
-    // Here we use client-gen ID for simplicity in 'storage.ts' fallback, but real DB usually has UUID.
-    // If we use client-side ID generation (Date.now), it works for basic usage.
+    const { error } = await api.createUser(newUser);
+    if (error) {
+      alert("Failed to register. Please check internet connection or contact admin.");
+      console.error("Registration failed:", error);
+    }
     return true;
   };
 
   const handleAddCandidate = async (name: string, phone: string) => {
     if (allUsers.find(u => u.phone === phone)) return;
-    const newUser: User = { id: `student-${Date.now()}`, name, phone, role: Role.STUDENT, approved: true };
+    const newUser: User = { id: crypto.randomUUID(), name, phone, role: Role.STUDENT, approved: true };
     
     const newInterview: InterviewSlot = {
-      id: `int-${Date.now()}`,
+      id: crypto.randomUUID(),
       studentId: newUser.id,
       interviewerId: null,
       date: new Date().toISOString().split('T')[0],
@@ -143,7 +145,7 @@ const App = () => {
 
   const handleCreateInterviewer = async (name: string, username: string, pass: string, email: string) => {
       const newInt: User = {
-        id: `int-${Date.now()}`,
+        id: crypto.randomUUID(),
         name: name,
         phone: username, 
         email: email,
@@ -166,7 +168,7 @@ const App = () => {
     setAllUsers(prev => prev.map(u => u.id === studentId ? { ...u, approved: true } : u));
     
     const newInterview: InterviewSlot = {
-      id: `int-${Date.now()}`,
+      id: crypto.randomUUID(),
       studentId: studentId,
       interviewerId: null,
       date: new Date().toISOString().split('T')[0],
@@ -206,7 +208,7 @@ const App = () => {
       await api.updateInterview(existingPlaceholder.id, updates);
     } else {
       const newInterview: InterviewSlot = {
-        id: `int-${Date.now()}`,
+        id: crypto.randomUUID(),
         studentId: user.id,
         interviewerId: assignedInterviewerId,
         date,
@@ -229,7 +231,7 @@ const App = () => {
     const interview = interviews.find(i => i.id === interviewId);
     if (interview) {
       const notif: Notification = {
-        id: `notif-${Date.now()}`,
+        id: crypto.randomUUID(),
         userId: interview.studentId,
         message: `Admin cancelled your interview on ${interview.date} at ${interview.startTime}. Please contact them and reschedule.`,
         read: false,
@@ -259,7 +261,7 @@ const App = () => {
   };
 
   const handleBlockSlot = async (date: string, startTime: string, endTime: string) => {
-    const newBlock: BlockedSlot = { id: `block-${Date.now()}`, date, startTime, endTime };
+    const newBlock: BlockedSlot = { id: crypto.randomUUID(), date, startTime, endTime };
     setBlockedSlots(prev => [...prev, newBlock]);
     await api.createBlock(newBlock);
   };

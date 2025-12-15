@@ -77,8 +77,9 @@ const toDbNotif = (n: Notification) => ({
   timestamp: n.timestamp
 });
 
+// Use a UUID for the initial admin to ensure compatibility with UUID-typed primary keys
 const INITIAL_ADMIN: User = {
-  id: 'admin-1',
+  id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
   name: 'Administrator',
   phone: 'aikidspro', 
   email: 'admin@aikids.com',
@@ -92,7 +93,10 @@ export const api = {
     try {
       // 1. Fetch Users
       const { data: usersData, error: usersError } = await supabase.from('users').select('*');
-      if (usersError) throw usersError;
+      if (usersError) {
+        console.error('Error fetching users:', usersError);
+        throw usersError;
+      }
 
       let users = (usersData || []).map(fromDbUser);
 
@@ -101,22 +105,33 @@ export const api = {
         const { error: insertError } = await supabase.from('users').insert([toDbUser(INITIAL_ADMIN)]);
         if (!insertError) {
            users = [INITIAL_ADMIN];
+        } else {
+           console.error('Error creating initial admin:', insertError);
         }
       }
 
       // 2. Fetch Interviews
       const { data: intData, error: intError } = await supabase.from('interviews').select('*');
-      if (intError) throw intError;
+      if (intError) {
+        console.error('Error fetching interviews:', intError);
+        throw intError;
+      }
       const interviews = (intData || []).map(fromDbInterview);
 
       // 3. Fetch Blocks
       const { data: blockData, error: blockError } = await supabase.from('blocked_slots').select('*');
-      if (blockError) throw blockError;
+      if (blockError) {
+        console.error('Error fetching blocks:', blockError);
+        throw blockError;
+      }
       const blockedSlots = (blockData || []).map(fromDbBlock);
 
       // 4. Fetch Notifications
       const { data: notifData, error: notifError } = await supabase.from('notifications').select('*');
-      if (notifError) throw notifError;
+      if (notifError) {
+        console.error('Error fetching notifications:', notifError);
+        throw notifError;
+      }
       const notifications = (notifData || []).map(fromDbNotif);
 
       return { users, interviews, blockedSlots, notifications };
@@ -129,6 +144,7 @@ export const api = {
 
   createUser: async (user: User) => {
     const { data, error } = await supabase.from('users').insert([toDbUser(user)]).select();
+    if (error) console.error("Error creating user:", error);
     return { data: data ? fromDbUser(data[0]) : null, error };
   },
 
@@ -143,11 +159,13 @@ export const api = {
     if (updates.approved !== undefined) dbUpdates.approved = updates.approved;
 
     const { error } = await supabase.from('users').update(dbUpdates).eq('id', id);
+    if (error) console.error("Error updating user:", error);
     return { data: null, error };
   },
 
   createInterview: async (interview: InterviewSlot) => {
     const { data, error } = await supabase.from('interviews').insert([toDbInterview(interview)]).select();
+    if (error) console.error("Error creating interview:", error);
     return { data: data ? fromDbInterview(data[0]) : null, error };
   },
 
@@ -162,31 +180,37 @@ export const api = {
     if (updates.companyName !== undefined) dbUpdates.company_name = updates.companyName;
 
     const { error } = await supabase.from('interviews').update(dbUpdates).eq('id', id);
+    if (error) console.error("Error updating interview:", error);
     return { data: null, error };
   },
 
   deleteInterview: async (id: string) => {
     const { error } = await supabase.from('interviews').delete().eq('id', id);
+    if (error) console.error("Error deleting interview:", error);
     return { error };
   },
 
   createBlock: async (block: BlockedSlot) => {
     const { data, error } = await supabase.from('blocked_slots').insert([toDbBlock(block)]).select();
+    if (error) console.error("Error creating block:", error);
     return { data: data ? fromDbBlock(data[0]) : null, error };
   },
 
   deleteBlock: async (id: string) => {
     const { error } = await supabase.from('blocked_slots').delete().eq('id', id);
+    if (error) console.error("Error deleting block:", error);
     return { error };
   },
 
   createNotification: async (notif: Notification) => {
     const { data, error } = await supabase.from('notifications').insert([toDbNotif(notif)]).select();
+    if (error) console.error("Error creating notification:", error);
     return { data: data ? fromDbNotif(data[0]) : null, error };
   },
 
   deleteNotification: async (id: string) => {
     const { error } = await supabase.from('notifications').delete().eq('id', id);
+    if (error) console.error("Error deleting notification:", error);
     return { error };
   }
 };
