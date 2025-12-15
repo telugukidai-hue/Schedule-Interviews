@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { loadData, saveData } from './services/storage';
+import { api } from './services/storage'; // This is now our Supabase API wrapper
+import { supabase } from './services/supabase';
 import { User, Role, Stage, InterviewSlot, BlockedSlot, Notification } from './types';
 import { Auth } from './components/Auth';
 import { AdminDashboard } from './components/AdminDashboard';
@@ -10,60 +11,71 @@ import { Button } from './components/Button';
 import { LogOut, Layout, UserCircle } from 'lucide-react';
 
 const App = () => {
-  const [isLoading, setIsLoading] = useState(true); // Add loading state
+  const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
+  
+  // App State
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [interviews, setInterviews] = useState<InterviewSlot[]>([]);
   const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  
   const [authView, setAuthView] = useState<'student' | 'admin'>('student');
 
-  // Load Data
-  useEffect(() => {
-    const data = loadData();
+  // Fetch Data Function
+  const refreshData = async () => {
+    const data = await api.fetchFullState();
     setAllUsers(data.users);
     setInterviews(data.interviews);
-    setBlockedSlots(data.blockedSlots || []);
-    setNotifications(data.notifications || []);
-    
-    // Restore session
-    const savedSessionId = localStorage.getItem('interview_flow_session_user_id');
-    if (savedSessionId) {
-      const found = data.users.find(u => u.id === savedSessionId);
-      if (found) {
-        setUser(found);
-      }
-    }
-    setIsLoading(false); // Finished loading
-  }, []);
+    setBlockedSlots(data.blockedSlots);
+    setNotifications(data.notifications);
+  };
 
-  // Persist Data & Broadcast
+  // Initial Load & Realtime Subscription
   useEffect(() => {
-    if (allUsers.length > 0) {
-      saveData({ users: allUsers, interviews, blockedSlots, notifications });
-      // Broadcast change to other tabs
-      const bc = new BroadcastChannel('app_sync');
-      bc.postMessage('update');
-      bc.close();
-    }
-  }, [allUsers, interviews, blockedSlots, notifications]);
-
-  // Listen for Broadcast (Multi-tab Sync)
-  useEffect(() => {
-    const bc = new BroadcastChannel('app_sync');
-    bc.onmessage = (event) => {
-      if (event.data === 'update') {
-        const data = loadData();
-        setAllUsers(data.users);
-        setInterviews(data.interviews);
-        setBlockedSlots(data.blockedSlots || []);
-        setNotifications(data.notifications || []);
+    const init = async () => {
+      await refreshData();
+      
+      // Restore session
+      const savedSessionId = localStorage.getItem('interview_flow_session_user_id');
+      if (savedSessionId) {
+        // We need to wait for data to be loaded to find the user
+        const data = await api.fetchFullState();
+        const found = data.users.find(u => u.id === savedSessionId);
+        if (found) {
+          setUser(found);
+        }
       }
+      setIsLoading(false);
     };
-    return () => bc.close();
+
+    init();
+
+    // Realtime Subscription
+    const channel = supabase.channel('main_db_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public' },
+        (payload) => {
+          console.log('Realtime change received!', payload);
+          refreshData(); // Simple strategy: refetch all on any change
+        }
+      )
+      .subscribe((status, err) => {
+        if (err) {
+          console.error("Realtime Connection Error:", err);
+        }
+        if (status === 'SUBSCRIBED') {
+          console.log("Connected to Realtime DB");
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
-  // Sync current user state
+  // Sync current user state if they are updated in DB
   useEffect(() => {
     if (user && allUsers.length > 0) {
       const freshUser = allUsers.find(u => u.id === user.id);
@@ -93,26 +105,30 @@ const App = () => {
     return false;
   };
 
-  const handleRegister = (name: string, phone: string) => {
+  const handleRegister = async (name: string, phone: string) => {
     if (allUsers.find(u => u.phone === phone)) return false;
     const newUser: User = { id: `student-${Date.now()}`, name, phone, role: Role.STUDENT, approved: false };
+    
+    // Optimistic Update
     setAllUsers(prev => [...prev, newUser]);
     setUser(newUser);
     localStorage.setItem('interview_flow_session_user_id', newUser.id);
+
+    // DB Update
+    await api.createUser(newUser);
     return true;
   };
 
-  const handleAddCandidate = (name: string, phone: string) => {
-    if (allUsers.find(u => u.phone === phone)) return; // exists
-    const newUser: User = { id: `student-${Date.now()}`, name, phone, role: Role.STUDENT, approved: true }; // Auto approved
+  const handleAddCandidate = async (name: string, phone: string) => {
+    if (allUsers.find(u => u.phone === phone)) return;
+    const newUser: User = { id: `student-${Date.now()}`, name, phone, role: Role.STUDENT, approved: true };
     
-    // Create placeholder interview so they appear on the board
     const newInterview: InterviewSlot = {
       id: `int-${Date.now()}`,
       studentId: newUser.id,
       interviewerId: null,
       date: new Date().toISOString().split('T')[0],
-      startTime: '00:00', // Placeholder
+      startTime: '00:00',
       durationMinutes: 0,
       stage: Stage.CLASSES,
       companyName: 'Pending'
@@ -120,9 +136,12 @@ const App = () => {
 
     setAllUsers(prev => [...prev, newUser]);
     setInterviews(prev => [...prev, newInterview]);
+
+    await api.createUser(newUser);
+    await api.createInterview(newInterview);
   };
 
-  const handleCreateInterviewer = (name: string, username: string, pass: string, email: string) => {
+  const handleCreateInterviewer = async (name: string, username: string, pass: string, email: string) => {
       const newInt: User = {
         id: `int-${Date.now()}`,
         name: name,
@@ -133,6 +152,7 @@ const App = () => {
         approved: true
       };
       setAllUsers(prev => [...prev, newInt]);
+      await api.createUser(newInt);
   };
 
   const handleLogout = () => {
@@ -141,10 +161,10 @@ const App = () => {
     setAuthView('student');
   };
 
-  const handleApprove = (studentId: string) => {
+  const handleApprove = async (studentId: string) => {
+    // Optimistic
     setAllUsers(prev => prev.map(u => u.id === studentId ? { ...u, approved: true } : u));
     
-    // Create placeholder interview so they appear on the board immediately
     const newInterview: InterviewSlot = {
       id: `int-${Date.now()}`,
       studentId: studentId,
@@ -156,35 +176,39 @@ const App = () => {
       companyName: 'Pending'
     };
     setInterviews(prev => [...prev, newInterview]);
+
+    // DB
+    await api.updateUser(studentId, { approved: true });
+    await api.createInterview(newInterview);
   };
 
-  const handleSchedule = (date: string, startTime: string, duration: number, companyName: string) => {
+  const handleSchedule = async (date: string, startTime: string, duration: number, companyName: string) => {
     if (!user) return;
     
-    // Auto-assign logic: Pick the first available interviewer by default
     const interviewers = allUsers.filter(u => u.role === Role.INTERVIEWER);
     let assignedInterviewerId = null;
     if (interviewers.length > 0) {
       assignedInterviewerId = interviewers[0].id;
     }
 
-    // Check if user already has a placeholder slot (duration 0)
     const existingPlaceholder = interviews.find(i => i.studentId === user.id && i.durationMinutes === 0);
     
     if (existingPlaceholder) {
-      setInterviews(prev => prev.map(i => i.id === existingPlaceholder.id ? {
-        ...i,
+      const updates = {
         date,
         startTime,
         durationMinutes: duration,
         companyName,
-        interviewerId: assignedInterviewerId // Auto assign
-      } : i));
+        interviewerId: assignedInterviewerId
+      };
+      
+      setInterviews(prev => prev.map(i => i.id === existingPlaceholder.id ? { ...i, ...updates } : i));
+      await api.updateInterview(existingPlaceholder.id, updates);
     } else {
       const newInterview: InterviewSlot = {
         id: `int-${Date.now()}`,
         studentId: user.id,
-        interviewerId: assignedInterviewerId, // Auto assign
+        interviewerId: assignedInterviewerId,
         date,
         startTime,
         durationMinutes: duration,
@@ -192,17 +216,18 @@ const App = () => {
         companyName
       };
       setInterviews(prev => [...prev, newInterview]);
+      await api.createInterview(newInterview);
     }
   };
 
-  const handleCancelInterview = (interviewId: string) => {
+  const handleCancelInterview = async (interviewId: string) => {
     setInterviews(prev => prev.filter(i => i.id !== interviewId));
+    await api.deleteInterview(interviewId);
   };
   
-  const handleAdminCancelInterview = (interviewId: string) => {
+  const handleAdminCancelInterview = async (interviewId: string) => {
     const interview = interviews.find(i => i.id === interviewId);
     if (interview) {
-      // Create notification
       const notif: Notification = {
         id: `notif-${Date.now()}`,
         userId: interview.studentId,
@@ -211,37 +236,44 @@ const App = () => {
         timestamp: new Date().toISOString()
       };
       setNotifications(prev => [...prev, notif]);
-      
-      // Remove interview
       setInterviews(prev => prev.filter(i => i.id !== interviewId));
+
+      await api.createNotification(notif);
+      await api.deleteInterview(interviewId);
     }
   };
   
-  const handleClearNotification = (id: string) => {
+  const handleClearNotification = async (id: string) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
+    await api.deleteNotification(id);
   };
 
-  const handleAssign = (interviewId: string, interviewerId: string) => {
+  const handleAssign = async (interviewId: string, interviewerId: string) => {
     setInterviews(prev => prev.map(i => i.id === interviewId ? { ...i, interviewerId } : i));
+    await api.updateInterview(interviewId, { interviewerId });
   };
 
-  const handleUpdateStage = (interviewId: string, stage: Stage) => {
+  const handleUpdateStage = async (interviewId: string, stage: Stage) => {
     setInterviews(prev => prev.map(i => i.id === interviewId ? { ...i, stage } : i));
+    await api.updateInterview(interviewId, { stage });
   };
 
-  const handleBlockSlot = (date: string, startTime: string, endTime: string) => {
+  const handleBlockSlot = async (date: string, startTime: string, endTime: string) => {
     const newBlock: BlockedSlot = { id: `block-${Date.now()}`, date, startTime, endTime };
     setBlockedSlots(prev => [...prev, newBlock]);
+    await api.createBlock(newBlock);
   };
 
-  const handleDeleteBlock = (id: string) => {
+  const handleDeleteBlock = async (id: string) => {
     setBlockedSlots(prev => prev.filter(b => b.id !== id));
+    await api.deleteBlock(id);
   };
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+        <span className="ml-3 text-slate-500 font-medium">Connecting to Database...</span>
       </div>
     );
   }
@@ -324,7 +356,7 @@ const App = () => {
                 canMove={true}
                 currentInterviewerId={user.id}
                 onAddStaff={() => {}} 
-                onCancel={() => {}} // Interviewers can't cancel? Or maybe they can. Leaving empty for now as requested for Admin.
+                onCancel={() => {}} 
               />
             </div>
           </div>
