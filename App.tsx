@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { api } from './services/storage'; 
+import { supabase } from './services/supabase';
 import { User, Role, Stage, InterviewSlot, BlockedSlot, Notification } from './types';
 import { Auth } from './components/Auth';
 import { AdminDashboard } from './components/AdminDashboard';
@@ -30,7 +31,7 @@ const App = () => {
     setNotifications(data.notifications);
   };
 
-  // Initial Load & Event Subscription
+  // Initial Load & Subscription
   useEffect(() => {
     const init = async () => {
       await refreshData();
@@ -39,10 +40,14 @@ const App = () => {
       const savedSessionId = localStorage.getItem('interview_flow_session_user_id');
       if (savedSessionId) {
         // We need to wait for data to be loaded to find the user
+        // Note: fetchFullState returns the latest, so we check that array
         const data = await api.fetchFullState();
         const found = data.users.find(u => u.id === savedSessionId);
         if (found) {
           setUser(found);
+        } else {
+            // If user not found in DB (e.g., cleared DB), clear session
+            localStorage.removeItem('interview_flow_session_user_id');
         }
       }
       setIsLoading(false);
@@ -50,18 +55,24 @@ const App = () => {
 
     init();
 
-    // Listen for local changes (same tab)
-    window.addEventListener('local_storage_update', refreshData);
-    // Listen for changes in other tabs
-    window.addEventListener('storage', refreshData);
+    // Subscribe to REALTIME changes from Supabase
+    const channel = supabase.channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public' },
+        (payload) => {
+          console.log('Change received!', payload);
+          refreshData();
+        }
+      )
+      .subscribe();
 
     return () => {
-      window.removeEventListener('local_storage_update', refreshData);
-      window.removeEventListener('storage', refreshData);
+      supabase.removeChannel(channel);
     };
   }, []);
 
-  // Sync current user state if they are updated in storage
+  // Sync current user state if they are updated in DB
   useEffect(() => {
     if (user && allUsers.length > 0) {
       const freshUser = allUsers.find(u => u.id === user.id);
@@ -100,8 +111,11 @@ const App = () => {
     setUser(newUser);
     localStorage.setItem('interview_flow_session_user_id', newUser.id);
 
-    // Storage Update
+    // DB Update
     await api.createUser(newUser);
+    // Refresh to ensure ID matches DB if needed, though we use generated IDs for now or let DB handle it. 
+    // Here we use client-gen ID for simplicity in 'storage.ts' fallback, but real DB usually has UUID.
+    // If we use client-side ID generation (Date.now), it works for basic usage.
     return true;
   };
 
