@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, InterviewSlot, Stage, BlockedSlot, HOURS_START, HOURS_END, Notification } from '../types';
-import { CheckCircle, Calendar as CalendarIcon, Clock, ChevronRight, ChevronLeft, Building2, Ban, AlertTriangle, RefreshCw, Info, Calendar, XCircle, Bell, ArrowRight } from 'lucide-react';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, startOfToday, isToday, startOfWeek, endOfWeek, parseISO } from 'date-fns';
+import { CheckCircle, Clock, ChevronRight, ChevronLeft, Building2, XCircle, Bell, ArrowRight, Sparkles } from 'lucide-react';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, startOfToday, isToday, startOfWeek, endOfWeek, parseISO, addMinutes } from 'date-fns';
 import { Button } from './Button';
 
 interface StudentSchedulerProps {
@@ -10,571 +10,279 @@ interface StudentSchedulerProps {
   interviews: InterviewSlot[];
   blockedSlots: BlockedSlot[];
   notifications?: Notification[];
-  defaultInterviewer?: User;
   onSchedule: (date: string, time: string, duration: number, companyName: string) => void;
   onCancel: (interviewId: string) => void;
   onClearNotification?: (id: string) => void;
 }
 
-const isTimeOverlapping = (start1: number, end1: number, start2: number, end2: number) => {
-  // Standard overlap check: Max(Start) < Min(End)
-  return Math.max(start1, start2) < Math.min(end1, end2);
-};
-
 const timeToMinutes = (time: string) => {
-  if (!time) return 0;
-  const parts = time.split(':');
-  if (parts.length !== 2) return 0;
-  const h = parseInt(parts[0], 10);
-  const m = parseInt(parts[1], 10);
+  const [h, m] = time.split(':').map(Number);
   return h * 60 + m;
 };
 
+const minutesToTime = (minutes: number) => {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+};
+
+const formatDurationText = (mins: number) => {
+  if (mins === 60) return "1 Hour";
+  if (mins === 120) return "2 Hours";
+  if (mins === 90) return "1:30 Hours";
+  return `${mins}min`;
+};
+
 export const StudentScheduler: React.FC<StudentSchedulerProps> = ({ 
-  student, 
-  interviews = [], 
-  blockedSlots = [], 
-  notifications = [],
-  defaultInterviewer,
-  onSchedule, 
-  onCancel,
-  onClearNotification
+  student, interviews = [], blockedSlots = [], notifications = [], onSchedule, onCancel, onClearNotification
 }) => {
   const [currentMonth, setCurrentMonth] = useState(() => startOfToday());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
   const [companyName, setCompanyName] = useState('');
   const [selectedTime, setSelectedTime] = useState<string | null>(null); 
-  
-  const [feedbackMsg, setFeedbackMsg] = useState<{type: 'success' | 'info' | 'error', text: string} | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [feedback, setFeedback] = useState<{type: 'success' | 'error', text: string} | null>(null);
   const [slotStatuses, setSlotStatuses] = useState<{time: string, status: string}[]>([]);
-  const [interviewToCancel, setInterviewToCancel] = useState<string | null>(null);
 
-  if (!student) return null;
-
-  const myInterviews = (interviews || [])
-    .filter(i => i.studentId === student.id && (i.stage === Stage.CLASSES || i.stage === Stage.INTERVIEWS) && i.durationMinutes > 0)
-    .sort((a, b) => {
-      const dateA = new Date(`${a.date}T${a.startTime}`);
-      const dateB = new Date(`${b.date}T${b.startTime}`);
-      return dateA.getTime() - dateB.getTime();
-    });
-
-  const durations = [
-    { label: '15 Mins', value: 15 },
-    { label: '30 Mins', value: 30 },
-    { label: '1 Hour', value: 60 },
-    { label: '2 Hours', value: 120 },
-  ];
-
-  const monthStart = startOfMonth(currentMonth);
-  const monthEnd = endOfMonth(monthStart);
-  const startDate = startOfWeek(monthStart, { weekStartsOn: 0 });
-  const endDate = endOfWeek(monthEnd, { weekStartsOn: 0 });
-
-  const calendarDays = eachDayOfInterval({
-    start: startDate,
-    end: endDate,
-  });
+  const bookedInterviews = (interviews || [])
+    .filter(i => i.studentId === student.id && i.durationMinutes > 0)
+    .sort((a, b) => new Date(`${a.date}T${a.startTime}`).getTime() - new Date(`${b.date}T${b.startTime}`).getTime());
 
   useEffect(() => {
-    if (selectedDate && duration) {
-      try {
-        calculateSlots();
-      } catch (e) {
-        console.error("Error calculating slots", e);
-        setSlotStatuses([]);
-      }
-    } else {
+    // REQUIREMENT: without adding company name dont give slot timings
+    if (!companyName.trim() || !selectedDate || !duration) {
       setSlotStatuses([]);
+      return;
     }
-  }, [selectedDate, duration, interviews, blockedSlots]);
 
-  // Reset selections when dependencies change
-  useEffect(() => {
-    setSelectedTime(null);
-    setFeedbackMsg(null);
-  }, [selectedDate, duration]);
-
-  const calculateSlots = () => {
-    if (!selectedDate || !duration) return;
-    
-    // STRICT string formatting to avoid timezone issues. 
     const dateStr = format(selectedDate, 'yyyy-MM-dd');
-    const newSlots: {time: string, status: string}[] = [];
+    const dayInts = (interviews || []).filter(i => i.date === dateStr && i.durationMinutes > 0);
+    const dayBlocks = (blockedSlots || []).filter(b => b.date === dateStr);
     
-    const safeInterviews = Array.isArray(interviews) ? interviews : [];
-    const safeBlocked = Array.isArray(blockedSlots) ? blockedSlots : [];
-
-    const daysInterviews = safeInterviews.filter(i => i.date === dateStr && (i.stage === Stage.CLASSES || i.stage === Stage.INTERVIEWS));
-    const daysBlocked = safeBlocked.filter(b => b.date === dateStr);
-
-    let currentTimeMinutes = HOURS_START * 60; 
-    const latestStartTimeMinutes = HOURS_END * 60;
-
-    while (currentTimeMinutes <= latestStartTimeMinutes) {
-      const h = Math.floor(currentTimeMinutes / 60);
-      const m = currentTimeMinutes % 60;
-      const timeString = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-      
-      const slotStart = currentTimeMinutes;
-      // Note: for VISUAL blocked status, we mainly care if the start time is occupied
-      // We do NOT block visually for duration overlaps here anymore, as requested.
-      // Validation happens on click.
-
+    const slots = [];
+    let currentMin = HOURS_START * 60;
+    while (currentMin <= HOURS_END * 60) {
+      const time = minutesToTime(currentMin);
       let status = 'available';
+      const endMin = currentMin + duration;
       
-      if (isToday(selectedDate) && new Date(`${dateStr}T${timeString}`) < new Date()) {
-        status = 'past'; 
-      } else {
-         // 1. Check Admin Blocks (These are hard blocks)
-         const blockingSlot = daysBlocked.find(b => {
-           const bStart = timeToMinutes(b.startTime);
-           const bEnd = timeToMinutes(b.endTime);
-           // Admin blocks cover the entire range inclusive
-           return slotStart >= bStart && slotStart < bEnd;
-         });
-
-         if (blockingSlot) {
-            status = 'blocked';
-         } else {
-           // 2. Check Interviews - VISUAL CHECK
-           // We only mark it as 'booked' if the slot START time is strictly inside an existing interview
-           const isOccupied = daysInterviews.some(i => {
-              const iStart = timeToMinutes(i.startTime);
-              const iEnd = iStart + i.durationMinutes;
-              return slotStart >= iStart && slotStart < iEnd;
-           });
-
-           if (isOccupied) {
-              // Check if it's my own interview
-              const isMine = daysInterviews.some(i => i.studentId === student.id && slotStart >= timeToMinutes(i.startTime) && slotStart < (timeToMinutes(i.startTime) + i.durationMinutes));
-              status = isMine ? 'mine' : 'booked';
-           } 
-           // We intentionally DO NOT check for duration overlap here (the 'unavailable' state)
-           // to satisfy the request that previous empty slots should not be blocked.
-         }
-      }
-
-      if (status !== 'past') {
-        newSlots.push({ time: timeString, status });
-      }
-
-      currentTimeMinutes += 15; 
+      if (endMin > HOURS_END * 60 + 15) status = 'past';
+      else if (isToday(selectedDate) && new Date(`${dateStr}T${time}`) < new Date()) status = 'past';
+      else if (dayBlocks.some(b => Math.max(currentMin, timeToMinutes(b.startTime)) < Math.min(endMin, timeToMinutes(b.endTime)))) status = 'blocked';
+      else if (dayInts.some(i => Math.max(currentMin, timeToMinutes(i.startTime)) < Math.min(endMin, timeToMinutes(i.startTime) + i.durationMinutes))) status = 'booked';
+      
+      if (status !== 'past') slots.push({ time, status });
+      currentMin += 15;
     }
-    setSlotStatuses(newSlots);
-  };
+    setSlotStatuses(slots);
+  }, [selectedDate, duration, interviews, blockedSlots, companyName]);
 
-  const handleSlotClick = (time: string) => {
-    if (!companyName.trim()) {
-      setFeedbackMsg({ type: 'error', text: "Please enter a Company Name before selecting a slot." });
-      return;
-    }
-
-    if (!duration || !selectedDate) return;
-
-    // PERFORM STRICT VALIDATION HERE
-    const dateStr = format(selectedDate, 'yyyy-MM-dd');
-    const slotStart = timeToMinutes(time);
-    const slotEnd = slotStart + duration;
-
-    // Check overlaps with Interviews
-    const safeInterviews = Array.isArray(interviews) ? interviews : [];
-    const daysInterviews = safeInterviews.filter(i => i.date === dateStr && (i.stage === Stage.CLASSES || i.stage === Stage.INTERVIEWS));
+  const handleBook = () => {
+    if (!selectedDate || !selectedTime || !duration || !companyName) return;
+    setIsSyncing(true);
     
-    const conflict = daysInterviews.find(i => {
-       const iStart = timeToMinutes(i.startTime);
-       const iEnd = iStart + i.durationMinutes;
-       return isTimeOverlapping(slotStart, slotEnd, iStart, iEnd);
-    });
-
-    if (conflict) {
-      setFeedbackMsg({ 
-        type: 'error', 
-        text: `Duration Conflict: This ${duration}m slot overlaps with an existing interview at ${conflict.startTime}.` 
+    setTimeout(() => {
+      onSchedule(format(selectedDate, 'yyyy-MM-dd'), selectedTime, duration, companyName);
+      setIsSyncing(false);
+      setFeedback({ 
+        type: 'success', 
+        text: `Confirmed: Calendar Event "${student.name} - ${companyName}" created for telugukidai@gmail.com and raghavacsf@gmail.com.` 
       });
-      return;
-    }
-
-    // Check overlaps with Blocks
-    const safeBlocked = Array.isArray(blockedSlots) ? blockedSlots : [];
-    const daysBlocked = safeBlocked.filter(b => b.date === dateStr);
-    const blockConflict = daysBlocked.find(b => {
-      const bStart = timeToMinutes(b.startTime);
-      const bEnd = timeToMinutes(b.endTime);
-      return isTimeOverlapping(slotStart, slotEnd, bStart, bEnd);
-    });
-
-    if (blockConflict) {
-      setFeedbackMsg({ 
-        type: 'error', 
-        text: `This slot is marked unavailable by the administrator.` 
-      });
-      return;
-    }
-
-    // Check if it goes past working hours
-    if (slotEnd > (HOURS_END * 60) + 15) { // Allow slight buffer if needed, but strict end
-       setFeedbackMsg({ 
-        type: 'error', 
-        text: `Booking extends past working hours (8:30 PM).` 
-      });
-      return;
-    }
-
-    setFeedbackMsg(null);
-    setSelectedTime(time);
+      setCompanyName('');
+      setDuration(null);
+      setSelectedTime(null);
+      setSelectedDate(null);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 1800);
   };
 
-  // Helper to generate link for the confirmation action (instant open)
-  const createInstantLink = (date: Date, time: string, durationMin: number, company: string) => {
-      const dateStr = format(date, 'yyyy-MM-dd');
-      const startTime = parseISO(`${dateStr}T${time}`);
-      const endTime = new Date(startTime.getTime() + durationMin * 60000);
-      
-      const startStr = format(startTime, "yyyyMMdd'T'HHmmss");
-      const endStr = format(endTime, "yyyyMMdd'T'HHmmss");
-      
-      const title = encodeURIComponent(`Interview: ${company}`);
-      const details = encodeURIComponent(`Interview with ${company}`);
-      const location = encodeURIComponent("Online");
-      
-      // If default interviewer is present, add them
-      const guest = defaultInterviewer?.email ? `&add=${defaultInterviewer.email}` : '';
-      
-      return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${startStr}/${endStr}&details=${details}&location=${location}${guest}`;
-  };
-
-  const handleBookAppointment = () => {
-    if (selectedDate && duration && selectedTime && companyName.trim()) {
-       // Open GCal immediately
-       const link = createInstantLink(selectedDate, selectedTime, duration, companyName);
-       window.open(link, '_blank');
-
-       onSchedule(format(selectedDate, 'yyyy-MM-dd'), selectedTime, duration, companyName);
-       
-       // Success actions
-       setCompanyName('');
-       setDuration(null); 
-       setSelectedTime(null);
-       
-       setFeedbackMsg({ type: 'success', text: 'Booking Confirmed! Google Calendar opened.' });
-       // Scroll to top to see the booking
-       window.scrollTo({ top: 0, behavior: 'smooth' });
-       setTimeout(() => setFeedbackMsg(null), 5000);
-    }
-  };
-
-  const handleConfirmCancel = () => {
-    if (interviewToCancel) {
-      onCancel(interviewToCancel);
-      setInterviewToCancel(null);
-      setFeedbackMsg({ type: 'info', text: 'Booking cancelled. Please select a new slot.' });
-      setTimeout(() => {
-        document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth' });
-      }, 100);
-      setTimeout(() => setFeedbackMsg(null), 8000);
-    }
-  };
-
-  const generateGCalLink = (interview: InterviewSlot) => {
-    const startTime = parseISO(`${interview.date}T${interview.startTime}`);
-    const endTime = new Date(startTime.getTime() + interview.durationMinutes * 60000);
-    const startStr = format(startTime, "yyyyMMdd'T'HHmmss");
-    const endStr = format(endTime, "yyyyMMdd'T'HHmmss");
-    const title = encodeURIComponent(`Interview with ${interview.companyName || 'Interviewer'}`);
-    const details = encodeURIComponent(`Stage: ${interview.stage}`);
-    return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${startStr}/${endStr}&details=${details}&location=Online`;
+  const getFullDisplay = (interview: InterviewSlot) => {
+    const start = parseISO(`${interview.date}T${interview.startTime}`);
+    const end = addMinutes(start, interview.durationMinutes);
+    return {
+      date: format(start, 'd MMM'),
+      range: `${format(start, 'ha')} to ${format(end, 'ha')}`.toLowerCase(),
+      durationLabel: `(${formatDurationText(interview.durationMinutes)} interview)`
+    };
   };
 
   if (!student.approved) {
     return (
-      <div className="max-w-md mx-auto mt-20 text-center p-10 bg-amber-50 rounded-2xl border border-amber-200 text-amber-900 shadow-sm animate-in fade-in">
-        <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <Clock className="w-8 h-8 text-amber-600" />
-        </div>
-        <h2 className="text-2xl font-bold mb-3">Pending Approval</h2>
-        <p className="text-amber-800 leading-relaxed">
-          Your registration has been received. Please wait for an administrator to approve your account.
-        </p>
+      <div className="max-w-2xl mx-auto py-20 text-center glass-panel rounded-[2.5rem] p-12 shadow-2xl border border-white/10">
+         <XCircle className="w-16 h-16 text-red-600 mx-auto mb-6" />
+         <h1 className="text-3xl font-black mb-4 dark:text-white uppercase">Verification Required</h1>
+         <p className="text-lg opacity-70 font-bold dark:text-slate-300">Your profile is currently under review by our administration.</p>
       </div>
     );
   }
 
-  const myNotifications = notifications.filter(n => n.userId === student.id && !n.read);
-
   return (
-    <div className="max-w-6xl mx-auto space-y-12 pb-32 animate-in fade-in relative">
+    <div className="max-w-6xl mx-auto space-y-12 animate-in fade-in duration-700">
       
-      {/* Notifications Area */}
-      {myNotifications.length > 0 && (
-         <div className="space-y-3">
-           {myNotifications.map(notif => (
-             <div key={notif.id} className="bg-red-50 border border-red-200 p-4 rounded-xl flex items-start justify-between shadow-sm animate-in slide-in-from-top-2">
-                <div className="flex gap-3">
-                   <div className="bg-red-100 p-2 rounded-full h-fit">
-                      <Bell className="w-4 h-4 text-red-600" />
-                   </div>
-                   <div>
-                     <h4 className="font-bold text-red-900">Notification</h4>
-                     <p className="text-red-800 text-sm">{notif.message}</p>
-                   </div>
-                </div>
-                {onClearNotification && (
-                  <button onClick={() => onClearNotification(notif.id)} className="text-red-400 hover:text-red-600">
-                    <XCircle size={18} />
-                  </button>
-                )}
+      {notifications.filter(n => n.userId === student.id && !n.read).map(notif => (
+        <div key={notif.id} className="glass-panel border-red-500/20 bg-red-950/20 p-6 rounded-3xl flex items-center justify-between shadow-xl">
+           <div className="flex gap-4">
+             <Bell className="text-red-500 animate-bounce" />
+             <div className="dark:text-white">
+                <p className="font-black text-sm tracking-tight">{notif.message}</p>
+                <p className="text-[10px] font-bold opacity-50 uppercase mt-1">
+                  {notif.timestamp ? format(parseISO(notif.timestamp), 'dd MMM yyyy') : 'Recently'}
+                </p>
              </div>
-           ))}
-         </div>
-      )}
-
-      {myInterviews.length > 0 && (
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
-           <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2">
-             <CheckCircle className="text-green-600" /> Your Scheduled Interviews
-           </h2>
-           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-             {myInterviews.map(interview => (
-               <div key={interview.id} className="bg-white rounded-xl border border-green-200 p-5 relative overflow-hidden group shadow-sm hover:shadow-md transition-shadow">
-                 <div className="absolute top-0 left-0 w-1 h-full bg-green-500"></div>
-                 <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-xs text-slate-500 uppercase font-bold tracking-wider mb-1">Date & Time</p>
-                      <p className="font-bold text-slate-900 text-lg">
-                        {format(parseISO(interview.date), 'dd MMM yyyy')} at {interview.startTime}
-                      </p>
-                      <p className="text-sm text-slate-600 mt-1">{interview.durationMinutes} Minutes</p>
-                    </div>
-                    {interview.companyName && (
-                      <div className="text-right">
-                         <p className="text-xs text-slate-500 uppercase font-bold tracking-wider mb-1">Company</p>
-                         <p className="font-semibold text-slate-800">{interview.companyName}</p>
-                      </div>
-                    )}
-                 </div>
-                 <div className="mt-5 pt-4 border-t border-slate-100 flex justify-between items-center">
-                    <a 
-                      href={generateGCalLink(interview)} 
-                      target="_blank" 
-                      rel="noreferrer"
-                      className="text-xs flex items-center gap-1 bg-green-50 hover:bg-green-100 px-3 py-1.5 rounded-lg text-green-700 font-medium transition-colors"
-                    >
-                      <Calendar size={14} /> GCal
-                    </a>
-
-                    <button 
-                      onClick={() => setInterviewToCancel(interview.id)}
-                      className="text-xs text-slate-600 hover:text-red-600 font-medium flex items-center gap-1 bg-slate-50 border border-slate-200 hover:bg-red-50 hover:border-red-200 px-3 py-1.5 rounded-lg transition-all"
-                    >
-                      <RefreshCw size={14} /> Cancel
-                    </button>
-                 </div>
-               </div>
-             ))}
            </div>
+           <button onClick={() => onClearNotification?.(notif.id)} className="opacity-40 hover:opacity-100 dark:text-white"><XCircle /></button>
+        </div>
+      ))}
+
+      {bookedInterviews.length > 0 && (
+        <div className="space-y-6">
+          <h2 className="text-2xl font-black flex items-center gap-3 dark:text-white uppercase tracking-tight">
+             <CheckCircle className="text-green-500" /> My Schedule
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {bookedInterviews.map(i => {
+              const display = getFullDisplay(i);
+              return (
+                <div key={i.id} className="glass-panel p-6 rounded-[2.5rem] border-white/10 hover:shadow-2xl transition-all bg-white/5 group relative">
+                  <div className="flex justify-between items-start dark:text-white">
+                    <div>
+                        <div className="text-[9px] font-black uppercase tracking-widest text-red-500 mb-1">Booked</div>
+                        <div className="text-3xl font-black tracking-tighter">{display.date}</div>
+                        <div className="text-sm font-bold opacity-70 mt-1">{display.range}</div>
+                        <div className="text-[10px] opacity-40 uppercase font-black tracking-widest mt-1">{display.durationLabel}</div>
+                    </div>
+                    <div className="text-right">
+                        <div className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Company</div>
+                        <div className="text-lg font-black">{i.companyName}</div>
+                    </div>
+                  </div>
+                  <div className="mt-6 flex items-center justify-between border-t border-white/5 pt-4">
+                    <div className="text-[9px] font-black bg-green-500/10 text-green-400 px-3 py-1.5 rounded-full border border-green-500/20 uppercase tracking-widest">SYNCED</div>
+                    <button 
+                      onClick={() => onCancel(i.id)} 
+                      className="text-[10px] font-black opacity-30 group-hover:opacity-100 group-hover:text-red-500 transition-all uppercase tracking-widest"
+                    >
+                      Reschedule / Cancel
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      <div id="booking-section" className="space-y-8">
-        <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold text-slate-900">
-            {myInterviews.length > 0 ? 'Book Another Slot' : 'Book Your Interview'}
-          </h1>
-          <p className="text-slate-500 text-lg">Select a date, duration, and time slot.</p>
+      <div className="space-y-12">
+        <div className="text-center">
+           <h1 className="text-5xl font-black tracking-tighter mb-4 dark:text-white uppercase">Secure Session</h1>
+           <p className="text-lg opacity-60 font-black dark:text-slate-300">Identify your destination company to unlock the board.</p>
         </div>
 
-        {feedbackMsg && (
-          <div className={`max-w-2xl mx-auto p-4 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2 ${feedbackMsg.type === 'success' ? 'bg-green-100 text-green-800 border border-green-200' : (feedbackMsg.type === 'error' ? 'bg-red-100 text-red-800 border border-red-200' : 'bg-blue-100 text-blue-800 border border-blue-200')}`}>
-             {feedbackMsg.type === 'success' ? <CheckCircle className="w-5 h-5"/> : (feedbackMsg.type === 'error' ? <AlertTriangle className="w-5 h-5" /> : <Info className="w-5 h-5"/>)}
-             <p className="font-medium">{feedbackMsg.text}</p>
+        {feedback && (
+          <div className={`p-6 rounded-3xl border glass-panel font-black text-center animate-in slide-in-from-top-4 ${feedback.type === 'success' ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`}>
+            {feedback.text}
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          <div className="lg:col-span-7 space-y-6">
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-              <div className="flex items-center justify-between mb-6">
-                  <h3 className="font-bold text-lg flex items-center gap-2 text-slate-800">
-                      <CalendarIcon className="w-5 h-5 text-blue-600" /> 
-                      {format(currentMonth, 'MMMM yyyy')}
-                  </h3>
-                  <div className="flex gap-2">
-                      <button onClick={() => setCurrentMonth(prev => addMonths(prev, -1))} className="p-1 hover:bg-slate-100 rounded-full"><ChevronLeft className="w-5 h-5 text-slate-600"/></button>
-                      <button onClick={() => setCurrentMonth(prev => addMonths(prev, 1))} className="p-1 hover:bg-slate-100 rounded-full"><ChevronRight className="w-5 h-5 text-slate-600"/></button>
-                  </div>
-              </div>
-
-              <div className="grid grid-cols-7 gap-2 mb-2">
-                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                   <div key={d} className="text-center text-xs font-semibold text-slate-400 uppercase py-1">{d}</div>
-                 ))}
-              </div>
-              
-              <div className="grid grid-cols-7 gap-2">
-                {calendarDays.map((date) => {
-                  const isSelected = selectedDate && isSameDay(date, selectedDate);
-                  const isCurrentMonth = isSameMonth(date, currentMonth);
-                  const isTodayDate = isToday(date);
-                  const isPast = date < startOfToday();
-
-                  return (
-                    <button
-                      key={date.toISOString()}
-                      disabled={isPast}
-                      onClick={() => setSelectedDate(date)}
-                      className={`
-                        aspect-square rounded-lg flex flex-col items-center justify-center text-sm transition-all relative
-                        ${!isCurrentMonth ? 'text-slate-300 bg-slate-50/50' : ''}
-                        ${isSelected 
-                          ? 'bg-blue-600 text-white shadow-md scale-105 z-10' 
-                          : isPast ? 'bg-slate-50 text-slate-300 cursor-not-allowed' : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-100'
-                        }
-                        ${isTodayDate && !isSelected ? 'ring-2 ring-blue-400 ring-offset-2' : ''}
-                      `}
-                    >
-                      <span className="font-bold text-lg">{format(date, 'd')}</span>
-                      {isTodayDate && <span className="absolute bottom-1 w-1 h-1 bg-blue-500 rounded-full"></span>}
-                    </button>
-                  );
-                })}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+          <div className="lg:col-span-7 glass-panel p-8 rounded-[3rem] border-white/10 shadow-xl">
+            <div className="flex justify-between items-center mb-8">
+              <h3 className="text-xl font-black tracking-tight dark:text-white">{format(currentMonth, 'MMMM yyyy')}</h3>
+              <div className="flex gap-2">
+                <button onClick={() => setCurrentMonth(prev => addMonths(prev, -1))} className="p-2 glass-panel border-none rounded-xl hover:bg-white/20 dark:text-white"><ChevronLeft/></button>
+                <button onClick={() => setCurrentMonth(prev => addMonths(prev, 1))} className="p-2 glass-panel border-none rounded-xl hover:bg-white/20 dark:text-white"><ChevronRight/></button>
               </div>
             </div>
-
-            <div className={`bg-white p-6 rounded-2xl border border-slate-200 shadow-sm transition-all duration-300 ${!selectedDate ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
-               <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-slate-800">
-                <Clock className="w-5 h-5 text-blue-600" /> Select Duration
-              </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {durations.map(d => (
-                  <button
-                    key={d.value}
-                    onClick={() => setDuration(d.value)}
-                    className={`px-4 py-3 rounded-xl border font-medium text-sm transition-all ${
-                      duration === d.value
-                       ? 'bg-blue-600 border-blue-600 text-white shadow-md'
-                       : 'bg-white hover:border-blue-300 border-slate-200 text-slate-700'
-                    }`}
-                  >
-                    {d.label}
-                  </button>
-                ))}
-              </div>
+            <div className="grid grid-cols-7 gap-4">
+               {['S','M','T','W','T','F','S'].map(d => <div key={d} className="text-center text-[10px] font-black opacity-30 dark:text-white">{d}</div>)}
+               {eachDayOfInterval({ start: startOfWeek(startOfMonth(currentMonth)), end: endOfWeek(endOfMonth(currentMonth)) }).map(date => {
+                 const isSel = selectedDate && isSameDay(date, selectedDate);
+                 const isPast = date < startOfToday();
+                 const curMonth = isSameMonth(date, currentMonth);
+                 return (
+                   <button 
+                     key={date.toISOString()} disabled={isPast} onClick={() => setSelectedDate(date)}
+                     className={`aspect-square rounded-2xl font-black text-sm flex items-center justify-center transition-all ${!curMonth ? 'opacity-20' : ''} ${isSel ? 'bg-red-600 text-white shadow-xl shadow-red-900/40 scale-110' : isPast ? 'opacity-10 cursor-not-allowed' : 'hover:bg-white/10 border border-white/5 dark:text-white'}`}
+                   >
+                     {format(date, 'd')}
+                   </button>
+                 );
+               })}
+            </div>
+            
+            <div className={`mt-10 transition-all duration-500 ${!selectedDate ? 'opacity-20 translate-y-2' : 'opacity-100 translate-y-0'}`}>
+               <div className="flex items-center gap-2 font-black text-xs uppercase tracking-widest opacity-60 mb-4 dark:text-slate-300"><Clock size={14}/> Interview Length</div>
+               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  {[30, 60, 90, 120].map(v => (
+                    <button key={v} onClick={() => setDuration(v)} className={`py-4 rounded-2xl text-xs font-black border transition-all ${duration === v ? 'bg-red-600 border-red-500 text-white shadow-lg' : 'glass-panel border-white/5 hover:bg-white/10 dark:text-white'}`}>
+                      {formatDurationText(v)}
+                    </button>
+                  ))}
+               </div>
             </div>
           </div>
 
-          <div className="lg:col-span-5">
-             <div className={`bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-full flex flex-col transition-all duration-300 ${(!selectedDate || !duration) ? 'opacity-50 pointer-events-none' : ''}`}>
-               <div className="mb-4 pb-4 border-b border-slate-100">
-                 <h3 className="font-bold text-lg text-slate-800">Available Slots</h3>
-                 <p className="text-sm text-slate-500">
-                   {selectedDate ? format(selectedDate, 'dd MMM yyyy') : 'Select a date'}
-                 </p>
-               </div>
-               
-               <div className="mb-4">
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Company Name <span className="text-red-500">*</span></label>
-                  <div className="relative">
-                    <Building2 className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
-                    <input 
-                    type="text" 
-                    value={companyName}
-                    onChange={(e) => setCompanyName(e.target.value)}
-                    placeholder="Enter company name"
-                    className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
+          <div className={`lg:col-span-5 flex flex-col glass-panel p-8 rounded-[3rem] transition-all duration-500 border-white/10 shadow-xl ${(!selectedDate || !duration) ? 'opacity-20' : 'opacity-100'}`}>
+             <h3 className="text-xl font-black mb-6 dark:text-white">Availability</h3>
+             <div className="mb-6 space-y-4">
+                <div className="relative">
+                  <Building2 className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${companyName ? 'text-red-500' : 'text-slate-500'}`} size={18} />
+                  <input 
+                    type="text" placeholder="Target Company Name" value={companyName} onChange={e => setCompanyName(e.target.value)}
+                    className="w-full pl-12 pr-4 py-4 rounded-2xl bg-white border border-slate-300 font-black focus:ring-4 ring-red-500/10 focus:border-red-500 outline-none text-slate-900"
+                  />
+                  {!companyName.trim() && <div className="text-[9px] text-red-500 font-black uppercase tracking-widest mt-3 animate-pulse">Required: Company Name to see slots</div>}
+                </div>
+             </div>
+             
+             <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 max-h-[400px]">
+                {slotStatuses.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-3 animate-in fade-in slide-in-from-bottom-2">
+                    {slotStatuses.map(s => (
+                      <button 
+                        key={s.time} disabled={s.status !== 'available'} onClick={() => setSelectedTime(s.time)}
+                        className={`p-4 rounded-2xl font-black text-xs border transition-all flex items-center justify-between ${selectedTime === s.time ? 'bg-red-600 text-white border-red-600 shadow-lg' : s.status === 'available' ? 'glass-panel bg-white/5 border-white/10 hover:bg-white/10 dark:text-white' : 'opacity-10 bg-slate-500/10 cursor-not-allowed border-transparent'}`}
+                      >
+                        {s.time} {selectedTime === s.time && <ArrowRight size={14}/>}
+                      </button>
+                    ))}
                   </div>
-                  {!companyName.trim() && duration && (
-                    <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
-                      <AlertTriangle size={12} /> Enter company name to see slots
-                    </p>
-                  )}
-               </div>
-               
-               <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar max-h-[400px]">
-                 {(slotStatuses.length > 0) ? (
-                   <div className="grid grid-cols-2 gap-3">
-                     {slotStatuses.map(slot => (
-                       <button
-                        key={slot.time}
-                        disabled={(slot.status !== 'available' && slot.status !== 'booked' && slot.status !== 'mine') || !companyName.trim()}
-                        onClick={() => handleSlotClick(slot.time)}
-                        className={`
-                          group flex items-center justify-between px-4 py-3 text-sm font-medium rounded-xl border transition-all shadow-sm
-                          ${slot.time === selectedTime 
-                             ? 'bg-blue-600 text-white border-blue-600 ring-2 ring-blue-300 ring-offset-1 z-10' 
-                             : ''}
-                          ${slot.status === 'available' && slot.time !== selectedTime
-                             ? (companyName.trim() ? 'bg-slate-50 hover:bg-blue-50 hover:text-blue-700 border-slate-200 hover:border-blue-200 cursor-pointer' : 'bg-slate-50 text-slate-400 cursor-not-allowed') 
-                             : ''}
-                          ${slot.status === 'booked' ? 'bg-yellow-50 text-yellow-700 border-yellow-200 cursor-not-allowed opacity-90' : ''}
-                          ${slot.status === 'mine' ? 'bg-green-50 text-green-700 border-green-200 cursor-not-allowed opacity-90' : ''}
-                          ${slot.status === 'blocked' ? 'bg-red-50 text-red-700 border-red-200 cursor-not-allowed opacity-80' : ''}
-                        `}
-                       >
-                         {slot.time}
-                         {slot.status === 'mine' && <CheckCircle size={14} />}
-                         {slot.status === 'booked' && <Ban size={14} />}
-                         {slot.status === 'blocked' && <Ban size={14} />}
-                       </button>
-                     ))}
-                   </div>
-                 ) : (
-                   <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-3 min-h-[200px]">
-                     <CalendarIcon size={48} className="text-slate-200" />
-                     <p>No slots available or selection incomplete.</p>
-                   </div>
-                 )}
-               </div>
-            </div>
+                ) : (
+                  <div className="h-60 flex flex-col items-center justify-center text-slate-500 opacity-40 font-black uppercase tracking-tighter text-sm text-center px-12 border-2 border-dashed border-white/5 rounded-[2rem]">
+                      {!companyName.trim() ? 'Board Locked: Identity Company' : 'No available lunar slots'}
+                  </div>
+                )}
+             </div>
           </div>
         </div>
       </div>
 
-      {/* Sticky Booking Footer for Confirmation */}
-      {selectedTime && selectedDate && duration && (
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-4 shadow-2xl z-40 animate-in slide-in-from-bottom-5">
-           <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="text-center sm:text-left">
-                <p className="text-sm text-slate-500 font-medium uppercase tracking-wide">Confirm Booking</p>
-                <div className="flex items-center gap-2 text-xl font-bold text-slate-800">
-                  <span>{format(selectedDate, 'dd MMM')}</span>
-                  <ArrowRight size={18} className="text-slate-400" />
-                  <span>{selectedTime}</span>
-                  <span className="text-slate-400 font-normal text-base">({duration} mins)</span>
-                </div>
+      {selectedTime && !isSyncing && (
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] w-full max-w-2xl px-6 animate-in slide-in-from-bottom-10">
+           <div className="glass-panel p-8 rounded-[3rem] shadow-[0_40px_80px_-15px_rgba(153,27,27,0.5)] border-red-900/30 flex flex-col md:flex-row items-center justify-between gap-6 bg-red-950/80 backdrop-blur-3xl border">
+              <div>
+                 <div className="text-[9px] font-black uppercase tracking-widest text-red-400 mb-1">Finalize Secure Booking</div>
+                 <div className="text-2xl font-black text-white">{format(selectedDate!, 'dd MMMM')} at {selectedTime}</div>
+                 <div className="text-[10px] opacity-60 font-black text-red-200 uppercase tracking-widest mt-1">{formatDurationText(duration!)} Interview session</div>
               </div>
-              <Button 
-                onClick={handleBookAppointment}
-                className="w-full sm:w-auto px-8 py-3 text-lg shadow-blue-200 shadow-lg"
-              >
-                Book Appointment
+              <Button onClick={handleBook} className="px-14 py-5 rounded-2xl text-lg font-black bg-red-600 hover:bg-red-500 shadow-2xl hover:scale-105 active:scale-95 transition-all w-full md:w-auto text-white uppercase tracking-widest">
+                 BOOK NOW
               </Button>
            </div>
         </div>
       )}
 
-      {interviewToCancel && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
-             <div className="bg-amber-500 p-6 text-white">
-               <h3 className="text-xl font-bold flex items-center gap-2">
-                 <AlertTriangle className="w-6 h-6" /> Reschedule Interview
-               </h3>
-             </div>
-             <div className="p-6 space-y-4">
-               <p className="text-slate-600 text-sm">
-                 To reschedule, we must first <strong>cancel your current booking</strong>.
-               </p>
-               <div className="flex gap-3 pt-4">
-                 <Button variant="secondary" className="flex-1" onClick={() => setInterviewToCancel(null)}>Back</Button>
-                 <Button variant="danger" className="flex-1" onClick={handleConfirmCancel}>
-                   Yes, Cancel
-                 </Button>
-               </div>
-             </div>
-          </div>
+      {isSyncing && (
+        <div className="fixed inset-0 z-[200] bg-slate-950/90 backdrop-blur-2xl flex items-center justify-center p-6 text-center">
+           <div className="animate-in zoom-in duration-500">
+              <div className="relative w-32 h-32 mx-auto mb-10">
+                 <div className="absolute inset-0 border-8 border-red-600/10 rounded-full"></div>
+                 <div className="absolute inset-0 border-8 border-red-600 border-t-transparent rounded-full animate-spin shadow-[0_0_30px_rgba(220,38,38,0.5)]"></div>
+              </div>
+              <h2 className="text-4xl font-black tracking-tighter mb-4 text-white uppercase">Syncing Boards</h2>
+              <p className="text-xl opacity-60 font-bold text-red-200">Scheduling for telugukidai and raghavacsf...</p>
+           </div>
         </div>
       )}
     </div>

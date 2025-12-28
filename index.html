@@ -1,9 +1,10 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>InterviewFlow</title>
+    <title>InterviewFlow | Smart Scheduler</title>
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -19,44 +20,83 @@
               secondary: '#475569',
             },
             animation: {
-              'blob': 'blob 7s infinite',
+              'blob': 'blob 10s infinite',
+              'twinkle': 'twinkle 3s ease-in-out infinite',
+              'float': 'float 6s ease-in-out infinite',
+              'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
             },
             keyframes: {
               blob: {
                 '0%': { transform: 'translate(0px, 0px) scale(1)' },
-                '33%': { transform: 'translate(30px, -50px) scale(1.1)' },
-                '66%': { transform: 'translate(-20px, 20px) scale(0.9)' },
+                '33%': { transform: 'translate(40px, -60px) scale(1.1)' },
+                '66%': { transform: 'translate(-30px, 30px) scale(0.9)' },
                 '100%': { transform: 'translate(0px, 0px) scale(1)' },
+              },
+              twinkle: {
+                '0%, 100%': { opacity: 0.3, transform: 'scale(0.8)' },
+                '50%': { opacity: 1, transform: 'scale(1.2)' },
+              },
+              float: {
+                '0%, 100%': { transform: 'translateY(0)' },
+                '50%': { transform: 'translateY(-20px)' },
               }
             }
           }
         }
       }
     </script>
-    <script>
-      // Polyfill for libraries that expect 'global' or 'process' to exist
-      if (typeof global === 'undefined') {
-        window.global = window;
-      }
-      if (typeof process === 'undefined') {
-        window.process = { env: {} };
-      }
-    </script>
     <style>
-      /* Custom Scrollbar for nicer UI in panels */
-      .custom-scrollbar::-webkit-scrollbar {
-        width: 6px;
+      .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+      .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+      .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 10px; }
+      
+      /* Glassmorphism Classes */
+      .glass-panel {
+        background: rgba(255, 255, 255, 0.75);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.3);
       }
-      .custom-scrollbar::-webkit-scrollbar-track {
+      .dark .glass-panel {
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      /* Environment Backgrounds */
+      .env-day {
+        background: linear-gradient(to bottom, #7dd3fc, #e0f2fe, #f1f5f9);
+        overflow: hidden;
+      }
+      .env-night {
+        background: linear-gradient(to bottom, #0f172a, #1e293b, #334155);
+        overflow: hidden;
+      }
+
+      /* Star Logic */
+      .star {
+        position: absolute;
+        background: white;
+        border-radius: 50%;
+        opacity: 0.5;
+      }
+
+      /* Mountain Shapes */
+      .mountain {
+        position: absolute;
+        bottom: 0;
+        width: 100%;
+        height: 30%;
         background: #f1f5f9;
-        border-radius: 4px;
+        clip-path: polygon(0% 100%, 15% 40%, 30% 70%, 50% 20%, 70% 60%, 85% 30%, 100% 100%);
       }
-      .custom-scrollbar::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
-        border-radius: 4px;
-      }
-      .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8;
+      .mountain-snow {
+        position: absolute;
+        bottom: 0;
+        width: 100%;
+        height: 30%;
+        background: white;
+        clip-path: polygon(15% 40%, 18% 45%, 12% 45%, 50% 20%, 54% 28%, 46% 28%, 85% 30%, 89% 38%, 81% 38%);
+        opacity: 0.8;
       }
     </style>
 <script type="importmap">
@@ -75,18 +115,8 @@
 }
 </script>
 </head>
-  <body class="bg-slate-50 text-slate-900 antialiased">
-    <div id="root">
-      <div style="height: 100vh; display: flex; align-items: center; justify-content: center; font-family: sans-serif; color: #64748b;">
-        <div style="text-align: center;">
-          <div style="width: 40px; height: 40px; border: 3px solid #e2e8f0; border-top-color: #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px;"></div>
-          Loading Application...
-        </div>
-      </div>
-      <style>
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-      </style>
-    </div>
+  <body class="text-slate-900 antialiased min-h-screen">
+    <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>

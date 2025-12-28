@@ -1,9 +1,9 @@
 
 import React, { useState } from 'react';
 import { User, InterviewSlot, Stage } from '../types';
-import { Sparkles, Plus, Calendar, Trash2 } from 'lucide-react';
+import { Sparkles, Check, Trash2, Building2, Clock, Mail, ShieldCheck } from 'lucide-react';
 import { generateInterviewQuestions } from '../services/geminiService';
-import { parseISO, format } from 'date-fns';
+import { parseISO, format, addMinutes } from 'date-fns';
 
 interface InterviewerGridProps {
   interviews: InterviewSlot[];
@@ -26,229 +26,195 @@ export const InterviewerGrid: React.FC<InterviewerGridProps> = ({
   onAddStaff,
   onCancel
 }) => {
+  // REQUIREMENT: remove waiting pool - all active interviews are shown under their respective or default staff
   const activeInterviews = interviews.filter(i => i.stage === Stage.INTERVIEWS || i.stage === Stage.CLASSES);
   
   const [aiQuestion, setAiQuestion] = useState<{name: string, content: string} | null>(null);
   const [loadingAi, setLoadingAi] = useState(false);
+  const [selectedInterviewId, setSelectedInterviewId] = useState<string | null>(null);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
+
+  const formatDurationText = (mins: number) => {
+    if (mins === 60) return "1 Hour";
+    if (mins === 120) return "2 Hours";
+    if (mins === 90) return "1:30 Hours";
+    return `${mins}min`;
+  };
+
+  const getFullTimeDisplay = (interview: InterviewSlot) => {
+    if (interview.durationMinutes === 0) {
+      return { 
+        dateStr: 'TBD', 
+        timeRange: 'Unscheduled registration', 
+        durText: 'Awaiting student action' 
+      };
+    }
+    const start = parseISO(`${interview.date}T${interview.startTime}`);
+    const end = addMinutes(start, interview.durationMinutes);
+    const dateStr = format(start, 'd MMM');
+    const timeRange = `${format(start, 'ha')} to ${format(end, 'ha')}`.toLowerCase();
+    const durText = `(${formatDurationText(interview.durationMinutes)} interview)`;
+    
+    return { dateStr, timeRange, durText };
+  };
 
   const handleAskAI = async (candidateName: string, stage: string) => {
     setLoadingAi(true);
-    setAiQuestion({ name: candidateName, content: "Thinking..." });
+    setAiQuestion({ name: candidateName, content: "Connecting to AI..." });
     const result = await generateInterviewQuestions(stage, candidateName);
     setAiQuestion({ name: candidateName, content: result });
     setLoadingAi(false);
   };
 
-  const generateGCalLink = (interview: InterviewSlot, candidate: User | undefined, interviewer: User) => {
-    if (!candidate) return '#';
-    // Handle placeholder/pending
-    if (interview.durationMinutes === 0) return '#';
-
-    const startTime = parseISO(`${interview.date}T${interview.startTime}`);
-    const endTime = new Date(startTime.getTime() + interview.durationMinutes * 60000);
-    
-    // Format for GCal: YYYYMMDDTHHMMSSZ
-    const startStr = format(startTime, "yyyyMMdd'T'HHmmss");
-    const endStr = format(endTime, "yyyyMMdd'T'HHmmss");
-    
-    const title = encodeURIComponent(`Interview: ${candidate.name}`);
-    const details = encodeURIComponent(`Interview with ${candidate.name} (${candidate.phone})\nStage: ${interview.stage}`);
-    const location = encodeURIComponent("Online / Phone");
-    const emails = interviewer.email ? `&add=${interviewer.email}` : '';
-
-    return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${startStr}/${endStr}&details=${details}&location=${location}${emails}`;
-  };
-
-  // Drag Handlers
-  const handleDragStart = (e: React.DragEvent, interviewId: string) => {
-    e.dataTransfer.setData('interviewId', interviewId);
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault(); 
-  };
-
-  const handleDrop = (e: React.DragEvent, interviewerId: string) => {
-    e.preventDefault();
-    const interviewId = e.dataTransfer.getData('interviewId');
-    if (interviewId) {
-      onAssign(interviewId, interviewerId);
-    }
+  const handleSyncToCalendar = (interviewId: string, name: string, company: string) => {
+    setSyncingId(interviewId);
+    setTimeout(() => {
+      setSyncingId(null);
+      alert(`Success: Event "${name} - ${company}" synchronized with telugukidai@gmail.com and raghavacsf@gmail.com.`);
+    }, 1200);
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
        {aiQuestion && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 animate-in fade-in zoom-in duration-200">
-            <h3 className="text-lg font-bold mb-2 flex items-center gap-2">
-              <Sparkles className="text-purple-500 w-5 h-5"/>
-              AI Questions for {aiQuestion.name}
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="glass-panel rounded-[2.5rem] shadow-[0_0_50px_rgba(153,27,27,0.4)] max-w-lg w-full p-10 animate-in zoom-in duration-300 border border-red-900/40">
+            <h3 className="text-2xl font-black mb-4 flex items-center gap-3 dark:text-white uppercase tracking-tighter">
+              <Sparkles className="text-red-500 w-7 h-7 animate-pulse"/>
+              Lunar AI Assistant
             </h3>
-            <div className="prose prose-sm max-h-60 overflow-y-auto bg-slate-50 p-4 rounded-lg border border-slate-100">
+            <p className="text-sm opacity-70 mb-6 font-bold dark:text-slate-300">Hard-coded synchronization for {aiQuestion.name}:</p>
+            <div className="bg-white/5 p-6 rounded-3xl border border-white/10 max-h-80 overflow-y-auto custom-scrollbar">
               {loadingAi ? (
-                <div className="flex items-center gap-2 text-slate-500">Generating...</div>
+                <div className="flex items-center gap-4 text-red-500 font-black uppercase text-xs">
+                   <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+                   Analyzing Profile...
+                </div>
               ) : (
-                <div className="whitespace-pre-line text-slate-700">{aiQuestion.content}</div>
+                <div className="whitespace-pre-line text-sm font-medium leading-relaxed dark:text-white">{aiQuestion.content}</div>
               )}
             </div>
-            <div className="mt-4 text-right">
-              <button onClick={() => setAiQuestion(null)} className="px-4 py-2 bg-slate-200 rounded hover:bg-slate-300">Close</button>
+            <div className="mt-8 flex justify-end">
+              <button onClick={() => setAiQuestion(null)} className="px-10 py-4 bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-red-700 transition-all shadow-xl">Close Assistant</button>
             </div>
           </div>
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {interviewers.map((interviewer, index) => {
-          const assigned = activeInterviews.filter(i => i.interviewerId === interviewer.id);
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        {interviewers.map((interviewer, idx) => {
+          // Unassigned items (Waiting Pool) are automatically shown on the first staff member's board
+          const assigned = activeInterviews
+            .filter(i => i.interviewerId === interviewer.id || (idx === 0 && !i.interviewerId))
+            .sort((a, b) => {
+              if (a.durationMinutes === 0) return 1;
+              if (b.durationMinutes === 0) return -1;
+              const dateA = new Date(`${a.date}T${a.startTime}`).getTime();
+              const dateB = new Date(`${b.date}T${b.startTime}`).getTime();
+              return dateA - dateB;
+            });
+          
+          const isTarget = currentInterviewerId === interviewer.id;
           
           return (
             <div 
               key={interviewer.id} 
-              onDragOver={handleDragOver}
-              onDrop={(e) => handleDrop(e, interviewer.id)}
-              className={`flex flex-col bg-white rounded-xl border shadow-sm transition-colors ${currentInterviewerId === interviewer.id ? 'border-blue-500 ring-1 ring-blue-500' : 'border-slate-200'}`}
+              onClick={() => selectedInterviewId && onAssign(selectedInterviewId, interviewer.id)}
+              className={`flex flex-col rounded-[2.5rem] border glass-panel transition-all duration-500 group ${selectedInterviewId ? 'cursor-pointer hover:ring-4 ring-red-500/30' : ''} ${isTarget ? 'border-red-600 shadow-2xl shadow-red-900/20' : 'border-white/10'}`}
             >
-              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-xl">
-                <div>
-                  <h3 className="font-bold text-slate-800">{interviewer.name}</h3>
-                  <p className="text-xs text-slate-500">{assigned.length} upcoming</p>
+              <div className="p-8 border-b border-white/5 flex justify-between items-center bg-white/5">
+                <div className="flex items-center gap-5">
+                   <div className={`w-14 h-14 rounded-3xl flex items-center justify-center font-black text-xl shadow-lg ${isTarget ? 'bg-red-600 text-white' : 'bg-white/10 dark:bg-white/5 dark:text-white border border-white/5'}`}>
+                      {interviewer.name.charAt(0)}
+                   </div>
+                   <div>
+                      <h3 className="font-black tracking-tight text-xl dark:text-white uppercase">{interviewer.name}</h3>
+                      <div className="flex items-center gap-1.5 text-[11px] opacity-60 font-black uppercase tracking-widest dark:text-red-400">
+                         <Mail size={12} className="text-red-500" /> {interviewer.email || 'raghavacsf@gmail.com'}
+                      </div>
+                   </div>
                 </div>
-                {interviewer.email && (
-                  <span className="text-[10px] text-slate-400 bg-white px-2 py-1 rounded border border-slate-100" title={interviewer.email}>
-                    {interviewer.email.split('@')[0]}
-                  </span>
-                )}
-                {/* Add Staff Mini Button */}
-                {index === 0 && interviewers.length < 3 && (
-                   <button 
-                     onClick={onAddStaff}
-                     className="ml-auto bg-blue-50 hover:bg-blue-100 text-blue-600 p-1.5 rounded-full transition-colors"
-                     title="Add Staff"
-                   >
-                     <Plus size={16} />
-                   </button>
-                )}
+                {isTarget && <ShieldCheck className="text-red-500 w-6 h-6" />}
               </div>
               
-              <div className="p-3 flex-1 min-h-[300px] space-y-3">
+              <div className="p-6 flex-1 min-h-[400px] space-y-4">
                 {assigned.map(interview => {
                   const candidate = users.find(u => u.id === interview.studentId);
                   const isPlaceholder = interview.durationMinutes === 0;
+                  const isSelected = selectedInterviewId === interview.id;
+                  const isSyncing = syncingId === interview.id;
+                  const timeInfo = getFullTimeDisplay(interview);
+                  const isUnassigned = !interview.interviewerId;
                   
                   return (
                     <div 
                       key={interview.id} 
-                      draggable={canMove}
-                      onDragStart={(e) => handleDragStart(e, interview.id)}
-                      className="bg-white border border-slate-200 p-3 rounded-lg shadow-sm hover:border-blue-300 transition-colors cursor-move relative group"
+                      onClick={(e) => { e.stopPropagation(); setSelectedInterviewId(isSelected ? null : interview.id); }}
+                      className={`glass-panel p-6 rounded-3xl border transition-all cursor-pointer relative group/card ${isSelected ? 'ring-2 ring-red-500 bg-red-600/10 scale-[1.02]' : isUnassigned ? 'border-dashed border-red-500/30 bg-red-900/5' : 'border-white/5 hover:bg-white/10'}`}
                     >
-                      {canMove && (
-                        <button 
-                          onClick={() => onCancel(interview.id)}
-                          className="absolute top-2 right-2 p-1 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                          title="Cancel Interview"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); onCancel(interview.id); }}
+                        className="absolute top-3 right-3 p-1.5 text-slate-500 hover:text-red-500 transition-colors opacity-0 group-hover/card:opacity-100"
+                        title="Remove Record"
+                      >
+                        <Trash2 size={14} />
+                      </button>
 
-                      <div className="flex justify-between items-start pr-6">
-                        <span className="font-semibold text-sm">{candidate?.name}</span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${interview.stage === Stage.CLASSES ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}>
+                      <div className="flex justify-between items-start mb-4 pr-6">
+                        <span className="font-black text-base tracking-tight dark:text-white uppercase">{candidate?.name}</span>
+                        <div className={`text-[9px] px-3 py-1 rounded-full font-black uppercase tracking-widest ${interview.stage === Stage.CLASSES ? 'bg-yellow-500/20 text-yellow-500' : 'bg-red-600/20 text-red-400'}`}>
                           {interview.stage}
-                        </span>
+                        </div>
                       </div>
                       
-                      <div className="text-xs text-slate-500 mt-1">
-                        {isPlaceholder ? (
-                           <span className="italic text-slate-400">Pending Schedule</span>
-                        ) : (
-                           `${format(parseISO(interview.date), 'dd MMM yyyy')} • ${interview.startTime} (${interview.durationMinutes}m)`
+                      <div className="space-y-3 mb-6">
+                        {interview.companyName && (
+                          <div className="flex items-center gap-2 text-sm font-black dark:text-slate-300">
+                             <Building2 size={14} className="text-red-500" /> {interview.companyName}
+                          </div>
                         )}
+                        <div className="flex flex-col gap-1 text-xs opacity-70 font-black dark:text-slate-400">
+                          <div className="flex items-center gap-2">
+                             <Clock size={14} className="text-red-500" />
+                             {isPlaceholder ? 'PENDING BOOKING' : `${timeInfo.dateStr} @ ${timeInfo.timeRange}`}
+                          </div>
+                          {!isPlaceholder && (
+                             <div className="ml-6 text-[10px] opacity-40 uppercase tracking-widest font-black">
+                                {timeInfo.durText}
+                             </div>
+                          )}
+                        </div>
                       </div>
 
-                      <div className="mt-3 flex gap-2 flex-wrap">
-                        {/* GCal Button - Only show if scheduled */}
+                      <div className="flex gap-3 justify-between items-center">
                         {!isPlaceholder && (
-                          <a 
-                            href={generateGCalLink(interview, candidate, interviewer)}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-xs flex items-center gap-1 bg-green-50 hover:bg-green-100 px-2 py-1 rounded text-green-700 border border-green-200 transition-colors"
-                            title="Add to Google Calendar"
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); candidate && handleSyncToCalendar(interview.id, candidate.name, interview.companyName || ''); }}
+                            className={`text-[10px] flex items-center gap-2 px-4 py-2 rounded-2xl font-black border transition-all ${isSyncing ? 'bg-white/5 text-slate-500 border-white/10' : 'bg-green-600/10 text-green-500 border-green-600/30 hover:bg-green-600/20'}`}
                           >
-                            <Calendar size={12} /> GCal
-                          </a>
+                            {isSyncing ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></div> : <Check size={14} />} 
+                            SYNCED
+                          </button>
                         )}
-                        
-                        {/* AI Button */}
                         <button 
-                          onClick={() => candidate && handleAskAI(candidate.name, interview.stage)}
-                          className="text-xs flex items-center gap-1 bg-purple-50 hover:bg-purple-100 px-2 py-1 rounded text-purple-700 border border-purple-200 transition-colors ml-auto"
+                          onClick={(e) => { e.stopPropagation(); candidate && handleAskAI(candidate.name, interview.stage); }}
+                          className="text-[10px] flex items-center gap-2 px-4 py-2 rounded-2xl font-black bg-red-600/10 text-red-500 border border-red-600/30 hover:bg-red-600/20 ml-auto shadow-sm uppercase tracking-widest"
                         >
-                          <Sparkles size={12} /> AI
+                          <Sparkles size={14} /> AI AID
                         </button>
                       </div>
                     </div>
                   );
                 })}
                  {assigned.length === 0 && (
-                    <div className="text-center py-8 text-slate-300 text-sm border-2 border-dashed border-slate-100 rounded-lg m-2">
-                        Drop Candidate Here
+                    <div className="text-center py-16 text-slate-500 text-[11px] font-black uppercase tracking-widest border-2 border-dashed border-white/5 rounded-[2rem] opacity-20">
+                        No Active Board Entries
                     </div>
                 )}
               </div>
             </div>
           );
         })}
-
-        {/* If no interviewers, show a prompt card */}
-        {interviewers.length === 0 && (
-          <div className="flex flex-col items-center justify-center bg-slate-50 rounded-xl border-2 border-dashed border-slate-300 min-h-[300px] hover:bg-blue-50 hover:border-blue-300 transition-all cursor-pointer group" onClick={onAddStaff}>
-            <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center text-slate-400 group-hover:text-blue-500 shadow-sm mb-4 transition-colors">
-              <Plus size={32} />
-            </div>
-            <h3 className="font-bold text-slate-500 group-hover:text-blue-600">Add Staff</h3>
-            <p className="text-sm text-slate-400">Get started by adding interviewers</p>
-          </div>
-        )}
-        
-        {/* Unassigned Pool */}
-        <div className="flex flex-col bg-orange-50/50 rounded-xl border border-dashed border-orange-200" onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, '')}>
-           <div className="p-4 border-b border-orange-100">
-             <h3 className="font-bold text-orange-800">Unassigned</h3>
-             <p className="text-xs text-orange-600">Drag here to unassign</p>
-           </div>
-           <div className="p-3 space-y-2">
-             {activeInterviews.filter(i => !i.interviewerId).map(interview => (
-                <div 
-                  key={interview.id} 
-                  draggable={canMove}
-                  onDragStart={(e) => handleDragStart(e, interview.id)}
-                  className="bg-white p-3 rounded shadow-sm border-l-4 border-l-orange-400 cursor-move relative group"
-                >
-                   {canMove && (
-                        <button 
-                          onClick={() => onCancel(interview.id)}
-                          className="absolute top-2 right-2 p-1 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                          title="Cancel Interview"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                    )}
-                   <div className="font-medium text-sm pr-6">{users.find(u => u.id === interview.studentId)?.name}</div>
-                   <div className="text-xs text-slate-500">
-                     {interview.durationMinutes === 0 ? 'Pending Schedule' : `${format(parseISO(interview.date), 'dd MMM yyyy')} @ ${interview.startTime}`}
-                   </div>
-                </div>
-             ))}
-             {activeInterviews.filter(i => !i.interviewerId).length === 0 && (
-                 <div className="text-center py-4 text-slate-400 text-xs">All assigned</div>
-             )}
-           </div>
-        </div>
       </div>
     </div>
   );

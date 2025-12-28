@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from './services/storage'; 
 import { supabase } from './services/supabase';
 import { User, Role, Stage, InterviewSlot, BlockedSlot, Notification } from './types';
@@ -8,13 +8,12 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { StudentScheduler } from './components/StudentScheduler';
 import { InterviewerGrid } from './components/InterviewerGrid';
 import { Button } from './components/Button';
-import { LogOut, Layout, UserCircle } from 'lucide-react';
+import { LogOut, Layout, UserCircle, Sun, Moon, Sparkles } from 'lucide-react';
 
 const App = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   
-  // App State
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [interviews, setInterviews] = useState<InterviewSlot[]>([]);
   const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>([]);
@@ -22,7 +21,19 @@ const App = () => {
   
   const [authView, setAuthView] = useState<'student' | 'admin'>('student');
 
-  // Fetch Data Function
+  const hour = new Date().getHours();
+  const isNight = hour >= 18 || hour < 6;
+
+  const stars = useMemo(() => {
+    return Array.from({ length: 150 }).map((_, i) => ({
+      id: i,
+      left: `${Math.random() * 100}%`,
+      top: `${Math.random() * 100}%`,
+      size: `${Math.random() * 1.5 + 0.5}px`,
+      delay: `${Math.random() * 5}s`,
+    }));
+  }, []);
+
   const refreshData = async () => {
     const data = await api.fetchFullState();
     setAllUsers(data.users);
@@ -31,22 +42,16 @@ const App = () => {
     setNotifications(data.notifications);
   };
 
-  // Initial Load & Subscription
   useEffect(() => {
     const init = async () => {
       await refreshData();
-      
-      // Restore session
       const savedSessionId = localStorage.getItem('interview_flow_session_user_id');
       if (savedSessionId) {
-        // We need to wait for data to be loaded to find the user
-        // Note: fetchFullState returns the latest, so we check that array
         const data = await api.fetchFullState();
         const found = data.users.find(u => u.id === savedSessionId);
         if (found) {
           setUser(found);
         } else {
-            // If user not found in DB (e.g., cleared DB), clear session
             localStorage.removeItem('interview_flow_session_user_id');
         }
       }
@@ -55,43 +60,19 @@ const App = () => {
 
     init();
 
-    // Subscribe to REALTIME changes from Supabase
-    // NOTE: You must enable Realtime for tables in Supabase Dashboard -> Database -> Replication
     const channel = supabase.channel('schema-db-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public' },
-        (payload) => {
-          console.log('Change received!', payload);
-          refreshData();
-        }
-      )
+      .on('postgres_changes', { event: '*', schema: 'public' }, () => refreshData())
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, []);
-
-  // Sync current user state if they are updated in DB
-  useEffect(() => {
-    if (user && allUsers.length > 0) {
-      const freshUser = allUsers.find(u => u.id === user.id);
-      if (freshUser && (freshUser.approved !== user.approved || freshUser.role !== user.role || freshUser.name !== user.name)) {
-        setUser(freshUser);
-      }
-    }
-  }, [allUsers, user]);
 
   const handleLogin = (identifier: string, passOrPhone: string, role: Role) => {
     const found = allUsers.find(u => {
       if (role === Role.STUDENT) {
         return u.name.toLowerCase() === identifier.toLowerCase() && u.phone === passOrPhone && u.role === Role.STUDENT;
       } else {
-        const isNameMatch = u.name === identifier;
-        const isUsernameMatch = u.phone === identifier;
-        const isRoleMatch = u.role === role;
-        return isRoleMatch && (isNameMatch || isUsernameMatch) && u.password === passOrPhone;
+        return u.role === role && (u.name === identifier || u.phone === identifier) && u.password === passOrPhone;
       }
     });
 
@@ -105,64 +86,42 @@ const App = () => {
 
   const handleRegister = async (name: string, phone: string) => {
     if (allUsers.find(u => u.phone === phone)) return false;
-    // Use crypto.randomUUID() for DB compatibility if columns are UUID
     const newUser: User = { id: crypto.randomUUID(), name, phone, role: Role.STUDENT, approved: false };
-    
-    // Optimistic Update
     setAllUsers(prev => [...prev, newUser]);
     setUser(newUser);
     localStorage.setItem('interview_flow_session_user_id', newUser.id);
-
-    // DB Update
-    const { error } = await api.createUser(newUser);
-    if (error) {
-      alert(`Registration failed saving to database. \nError: ${error.message}\n\nPlease contact admin or check SETUP_SQL.md instructions.`);
-      console.error("Registration failed:", error);
-    }
+    await api.createUser(newUser);
     return true;
   };
 
+  const getDefaultInterviewerId = () => {
+    const staff = allUsers.filter(u => u.role === Role.INTERVIEWER);
+    return staff.length > 0 ? staff[0].id : null;
+  };
+
   const handleAddCandidate = async (name: string, phone: string) => {
-    if (allUsers.find(u => u.phone === phone)) return;
-    const newUser: User = { id: crypto.randomUUID(), name, phone, role: Role.STUDENT, approved: true };
+    let targetUser = allUsers.find(u => u.phone === phone);
     
-    const newInterview: InterviewSlot = {
-      id: crypto.randomUUID(),
-      studentId: newUser.id,
-      interviewerId: null,
-      date: new Date().toISOString().split('T')[0],
-      startTime: '00:00',
-      durationMinutes: 0,
-      stage: Stage.CLASSES,
-      companyName: 'Pending'
-    };
-
-    setAllUsers(prev => [...prev, newUser]);
-    setInterviews(prev => [...prev, newInterview]);
-
-    const { error: uErr } = await api.createUser(newUser);
-    const { error: iErr } = await api.createInterview(newInterview);
-    
-    if (uErr || iErr) {
-        alert("Error saving candidate to database. Check console for details.");
+    if (!targetUser) {
+      targetUser = { id: crypto.randomUUID(), name, phone, role: Role.STUDENT, approved: true };
+      setAllUsers(prev => [...prev, targetUser!]);
+      await api.createUser(targetUser);
     }
+
+    const defaultStaffId = getDefaultInterviewerId();
+    const newInterview: InterviewSlot = {
+      id: crypto.randomUUID(), studentId: targetUser.id, interviewerId: defaultStaffId,
+      date: new Date().toISOString().split('T')[0], startTime: '00:00',
+      durationMinutes: 0, stage: Stage.CLASSES, companyName: 'New Applicant'
+    };
+    setInterviews(prev => [...prev, newInterview]);
+    await api.createInterview(newInterview);
   };
 
   const handleCreateInterviewer = async (name: string, username: string, pass: string, email: string) => {
-      const newInt: User = {
-        id: crypto.randomUUID(),
-        name: name,
-        phone: username, 
-        email: email,
-        role: Role.INTERVIEWER,
-        password: pass,
-        approved: true
-      };
-      setAllUsers(prev => [...prev, newInt]);
-      const { error } = await api.createUser(newInt);
-      if (error) {
-          alert(`Error creating interviewer in DB: ${error.message}. \nPlease run the SQL setup script.`);
-      }
+    const newInt: User = { id: crypto.randomUUID(), name, phone: username, email, role: Role.INTERVIEWER, password: pass, approved: true };
+    setAllUsers(prev => [...prev, newInt]);
+    await api.createUser(newInt);
   };
 
   const handleLogout = () => {
@@ -172,225 +131,212 @@ const App = () => {
   };
 
   const handleApprove = async (studentId: string) => {
-    // Optimistic
     setAllUsers(prev => prev.map(u => u.id === studentId ? { ...u, approved: true } : u));
+    await api.updateUser(studentId, { approved: true });
     
+    const defaultStaffId = getDefaultInterviewerId();
     const newInterview: InterviewSlot = {
-      id: crypto.randomUUID(),
-      studentId: studentId,
-      interviewerId: null,
-      date: new Date().toISOString().split('T')[0],
-      startTime: '00:00', 
-      durationMinutes: 0,
-      stage: Stage.CLASSES, 
-      companyName: 'Pending'
+      id: crypto.randomUUID(), studentId: studentId, interviewerId: defaultStaffId,
+      date: new Date().toISOString().split('T')[0], startTime: '00:00',
+      durationMinutes: 0, stage: Stage.CLASSES, companyName: 'New Applicant'
     };
     setInterviews(prev => [...prev, newInterview]);
-
-    // DB
-    const { error: uErr } = await api.updateUser(studentId, { approved: true });
-    const { error: iErr } = await api.createInterview(newInterview);
-
-    if (uErr || iErr) {
-        alert("Failed to sync approval to database. It may not show on other devices.");
-    }
+    await api.createInterview(newInterview);
   };
 
   const handleSchedule = async (date: string, startTime: string, duration: number, companyName: string) => {
     if (!user) return;
+    const defaultStaffId = getDefaultInterviewerId();
     
-    const interviewers = allUsers.filter(u => u.role === Role.INTERVIEWER);
-    let assignedInterviewerId = null;
-    if (interviewers.length > 0) {
-      assignedInterviewerId = interviewers[0].id;
-    }
+    const newInterview: InterviewSlot = {
+      id: crypto.randomUUID(),
+      studentId: user.id,
+      interviewerId: defaultStaffId, 
+      date,
+      startTime,
+      durationMinutes: duration,
+      stage: Stage.INTERVIEWS,
+      companyName
+    };
 
-    const existingPlaceholder = interviews.find(i => i.studentId === user.id && i.durationMinutes === 0);
-    
-    if (existingPlaceholder) {
-      const updates = {
-        date,
-        startTime,
-        durationMinutes: duration,
-        companyName,
-        interviewerId: assignedInterviewerId
-      };
-      
-      setInterviews(prev => prev.map(i => i.id === existingPlaceholder.id ? { ...i, ...updates } : i));
-      const { error } = await api.updateInterview(existingPlaceholder.id, updates);
-      if (error) alert("Scheduling failed to save. Please try again.");
-
-    } else {
-      const newInterview: InterviewSlot = {
-        id: crypto.randomUUID(),
-        studentId: user.id,
-        interviewerId: assignedInterviewerId,
-        date,
-        startTime,
-        durationMinutes: duration,
-        stage: Stage.CLASSES,
-        companyName
-      };
-      setInterviews(prev => [...prev, newInterview]);
-      const { error } = await api.createInterview(newInterview);
-      if (error) alert("Scheduling failed to save. Please try again.");
-    }
+    setInterviews(prev => [...prev, newInterview]);
+    await api.createInterview(newInterview);
   };
 
   const handleCancelInterview = async (interviewId: string) => {
-    setInterviews(prev => prev.filter(i => i.id !== interviewId));
-    await api.deleteInterview(interviewId);
+    if (window.confirm("Reschedule or Cancel: This will release your current time slot. Proceed?")) {
+      const { error } = await api.deleteInterview(interviewId);
+      if (!error) {
+        setInterviews(prev => prev.filter(i => i.id !== interviewId));
+      } else {
+        alert("Failed to cancel. Please check your network.");
+      }
+    }
+  };
+
+  const handleDeleteCandidate = async (interviewId: string) => {
+    if (window.confirm("Permanent Removal: Remove this candidate registration?")) {
+      const { error } = await api.deleteInterview(interviewId);
+      if (!error) {
+        setInterviews(prev => prev.filter(i => i.id !== interviewId));
+      }
+    }
   };
   
   const handleAdminCancelInterview = async (interviewId: string) => {
     const interview = interviews.find(i => i.id === interviewId);
-    if (interview) {
+    if (interview && window.confirm("Admin: Cancel this student booking?")) {
       const notif: Notification = {
-        id: crypto.randomUUID(),
-        userId: interview.studentId,
-        message: `Admin cancelled your interview on ${interview.date} at ${interview.startTime}. Please contact them and reschedule.`,
-        read: false,
-        timestamp: new Date().toISOString()
+        id: crypto.randomUUID(), userId: interview.studentId,
+        message: `Admin Action: Your scheduled interview for ${interview.companyName} on ${interview.date} was cancelled.`,
+        read: false, timestamp: new Date().toISOString()
       };
-      setNotifications(prev => [...prev, notif]);
-      setInterviews(prev => prev.filter(i => i.id !== interviewId));
-
-      await api.createNotification(notif);
-      await api.deleteInterview(interviewId);
+      
+      const { error } = await api.deleteInterview(interviewId);
+      if (!error) {
+        setInterviews(prev => prev.filter(i => i.id !== interviewId));
+        setNotifications(prev => [...prev, notif]);
+        await api.createNotification(notif);
+      }
     }
-  };
-  
-  const handleClearNotification = async (id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
-    await api.deleteNotification(id);
-  };
-
-  const handleAssign = async (interviewId: string, interviewerId: string) => {
-    setInterviews(prev => prev.map(i => i.id === interviewId ? { ...i, interviewerId } : i));
-    await api.updateInterview(interviewId, { interviewerId });
-  };
-
-  const handleUpdateStage = async (interviewId: string, stage: Stage) => {
-    setInterviews(prev => prev.map(i => i.id === interviewId ? { ...i, stage } : i));
-    await api.updateInterview(interviewId, { stage });
-  };
-
-  const handleBlockSlot = async (date: string, startTime: string, endTime: string) => {
-    const newBlock: BlockedSlot = { id: crypto.randomUUID(), date, startTime, endTime };
-    setBlockedSlots(prev => [...prev, newBlock]);
-    await api.createBlock(newBlock);
-  };
-
-  const handleDeleteBlock = async (id: string) => {
-    setBlockedSlots(prev => prev.filter(b => b.id !== id));
-    await api.deleteBlock(id);
   };
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-        <span className="ml-3 text-slate-500 font-medium">Loading Application...</span>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col relative overflow-hidden">
-        <div className="absolute inset-0 bg-slate-50 z-0 pointer-events-none">
-          <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-50/50 to-slate-100/50"></div>
-          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-200/30 rounded-full mix-blend-multiply filter blur-3xl animate-blob"></div>
-          <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-200/30 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-2000"></div>
-        </div>
-        <div className="absolute top-4 right-4 z-[50]">
-          <Button 
-            variant="ghost" 
-            onClick={() => setAuthView(authView === 'student' ? 'admin' : 'student')}
-            className="text-xs bg-white/80 backdrop-blur shadow-sm hover:bg-white border border-white/50 cursor-pointer pointer-events-auto"
-          >
-            {authView === 'student' ? 'Admin / Interviewer Login' : 'Student Login'}
-          </Button>
-        </div>
-        <div className="z-10 w-full h-full flex flex-col flex-1 relative justify-center">
-           <Auth mode={authView} onLogin={handleLogin} onRegister={handleRegister} />
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-red-600 border-t-transparent rounded-full animate-spin mx-auto mb-4 shadow-[0_0_20px_rgba(220,38,38,0.5)]"></div>
+          <span className="text-red-100 font-black tracking-widest uppercase text-[10px] animate-pulse">Lunar Sync In Progress</span>
         </div>
       </div>
     );
   }
-
-  // Find default interviewer for StudentScheduler (if any)
-  const defaultInterviewer = allUsers.find(u => u.role === Role.INTERVIEWER) || null;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <div className="bg-blue-600 p-1.5 rounded-lg text-white shadow-sm">
-               <Layout className="w-5 h-5" />
+    <div className={`min-h-screen flex flex-col relative transition-all duration-1000 ${isNight ? 'env-night dark text-slate-100' : 'env-day text-slate-900'}`}>
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        {isNight ? (
+          <>
+            {stars.map(star => (
+              <div key={star.id} className="star animate-twinkle" style={{ left: star.left, top: star.top, width: star.size, height: star.size, animationDelay: star.delay }}></div>
+            ))}
+            
+            {/* Realistic Photographed Blood Moon from Earth */}
+            <div className="absolute top-20 right-20 select-none animate-float">
+              {/* Massive atmospheric glow (Aura) */}
+              <div className="absolute inset-[-80px] w-[300px] h-[300px] bg-[#660000] rounded-full blur-[90px] opacity-40 animate-pulse-slow"></div>
+              <div className="absolute inset-[-40px] w-[220px] h-[220px] bg-[#991b1b] rounded-full blur-[50px] opacity-30"></div>
+              
+              {/* Main Moon Body with Spots/Craters */}
+              <div className="relative w-40 h-40 rounded-full bg-gradient-to-br from-[#450a0a] via-[#991b1b] to-[#1e0a0a] shadow-[inset_-15px_-15px_50px_rgba(0,0,0,0.8),0_0_60px_rgba(153,27,27,0.5)] overflow-hidden border border-red-900/40">
+                {/* Natural Spots/Craters */}
+                <div className="absolute top-[15%] left-[25%] w-10 h-10 bg-black/40 rounded-full blur-[4px]"></div>
+                <div className="absolute bottom-[20%] right-[15%] w-14 h-14 bg-black/30 rounded-full blur-[6px]"></div>
+                <div className="absolute top-[50%] left-[10%] w-6 h-6 bg-black/45 rounded-full blur-[2px]"></div>
+                <div className="absolute bottom-[10%] left-[40%] w-8 h-8 bg-black/35 rounded-full blur-[3px]"></div>
+                <div className="absolute top-[30%] right-[25%] w-7 h-7 bg-black/40 rounded-full blur-[3px]"></div>
+                <div className="absolute top-[60%] right-[35%] w-4 h-4 bg-black/50 rounded-full blur-[1px]"></div>
+                
+                {/* Texture overlay */}
+                <div className="absolute inset-0 w-full h-full opacity-15 bg-[url('https://www.transparenttextures.com/patterns/pinstriped-suit.png')] mix-blend-multiply"></div>
+                
+                {/* Secondary Highlight */}
+                <div className="absolute top-2 left-2 w-16 h-16 bg-white/5 rounded-full blur-xl"></div>
+              </div>
+
+              {/* Realistic Lens Flare Streak */}
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[2px] bg-gradient-to-r from-transparent via-red-500/10 to-transparent rotate-[170deg] blur-[1px]"></div>
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[1px] bg-gradient-to-r from-transparent via-red-400/10 to-transparent rotate-[80deg] blur-[3px]"></div>
             </div>
-            <span className="font-bold text-xl text-slate-800 tracking-tight">InterviewFlow</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="hidden sm:flex items-center gap-2 text-sm text-slate-600 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200">
-              <UserCircle className="w-4 h-4 text-slate-500" />
-              <span className="font-medium">{user.name}</span>
-            </div>
-            <Button variant="secondary" onClick={handleLogout} className="text-xs sm:text-sm">
-              <LogOut className="w-4 h-4 mr-2" />
-              Logout
+          </>
+        ) : (
+          <>
+            <div className="mountain"></div>
+            <div className="mountain-snow"></div>
+            <div className="absolute top-20 left-20 w-24 h-24 bg-yellow-300 rounded-full shadow-[0_0_60px_#fde047] animate-pulse-slow"></div>
+          </>
+        )}
+      </div>
+
+      {!user ? (
+        <div className="z-10 w-full h-screen flex flex-col justify-center relative">
+          <div className="absolute top-6 right-6 z-50">
+            <Button 
+              variant="ghost" 
+              onClick={() => setAuthView(authView === 'student' ? 'admin' : 'student')}
+              className={`glass-panel border-none shadow-lg px-6 ${isNight ? 'text-red-200 hover:bg-white/10' : 'text-blue-600 hover:bg-white/50'}`}
+            >
+              {authView === 'student' ? <Moon className="w-4 h-4 mr-2" /> : <Sun className="w-4 h-4 mr-2" />}
+              {authView === 'student' ? 'Staff Area' : 'Student Area'}
             </Button>
           </div>
+          <Auth mode={authView} onLogin={handleLogin} onRegister={handleRegister} />
         </div>
-      </header>
-
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
-        {user.role === Role.ADMIN && (
-          <AdminDashboard 
-            users={allUsers}
-            interviews={interviews}
-            blockedSlots={blockedSlots}
-            onApprove={handleApprove}
-            onAssign={handleAssign}
-            onUpdateStage={handleUpdateStage}
-            onCreateInterviewer={handleCreateInterviewer}
-            onBlockSlot={handleBlockSlot}
-            onDeleteBlock={handleDeleteBlock}
-            onAddCandidate={handleAddCandidate}
-            onCancel={handleAdminCancelInterview}
-          />
-        )}
-        {user.role === Role.INTERVIEWER && (
-          <div className="space-y-6">
-            <h1 className="text-2xl font-bold text-slate-800">Interviewer Dashboard</h1>
-            <div className="bg-slate-100 p-6 rounded-2xl border border-slate-200">
-              <InterviewerGrid 
-                interviews={interviews}
-                interviewers={allUsers.filter(u => u.role === Role.INTERVIEWER)}
-                users={allUsers}
-                onAssign={handleAssign}
-                canMove={true}
-                currentInterviewerId={user.id}
-                onAddStaff={() => {}} 
-                onCancel={() => {}} 
-              />
+      ) : (
+        <div className="z-10 flex flex-col min-h-screen">
+          <header className={`glass-panel sticky top-0 z-40 shadow-sm border-b transition-colors duration-500 ${isNight ? 'border-red-900/20' : 'border-slate-200'}`}>
+            <div className="max-w-7xl mx-auto px-6 h-20 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-xl text-white shadow-lg animate-float ${isNight ? 'bg-red-700 shadow-red-900/40' : 'bg-blue-600 shadow-blue-500/30'}`}>
+                   <Layout className="w-6 h-6" />
+                </div>
+                <div>
+                  <span className="font-extrabold text-2xl tracking-tighter dark:text-white">InterviewFlow</span>
+                  <div className={`text-[10px] font-bold uppercase tracking-[0.2em] ${isNight ? 'text-red-400' : 'text-blue-600'}`}>Lunar Board</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-6">
+                <div className={`hidden md:flex items-center gap-3 px-4 py-2 rounded-xl glass-panel ${isNight ? 'text-red-100' : 'text-slate-700'}`}>
+                  <UserCircle className={`w-5 h-5 ${isNight ? 'text-red-400' : 'text-blue-500'}`} />
+                  <span className="font-bold text-sm">{user.name}</span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${isNight ? 'bg-red-900/50 text-red-300' : 'bg-blue-100 text-blue-700'}`}>{user.role}</span>
+                </div>
+                <Button variant="secondary" onClick={handleLogout} className="glass-panel border-none shadow-md hover:scale-105 transition-transform font-bold dark:text-white">
+                  <LogOut className="w-4 h-4 mr-2" /> Logout
+                </Button>
+              </div>
             </div>
-          </div>
-        )}
-        {user.role === Role.STUDENT && (
-          <StudentScheduler 
-            student={user}
-            interviews={interviews}
-            blockedSlots={blockedSlots}
-            notifications={notifications}
-            onSchedule={handleSchedule}
-            onCancel={handleCancelInterview}
-            onClearNotification={handleClearNotification}
-            defaultInterviewer={defaultInterviewer || undefined}
-          />
-        )}
-      </main>
+          </header>
+
+          <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-10 animate-in fade-in duration-700">
+            {user.role === Role.ADMIN && (
+              <AdminDashboard 
+                users={allUsers} interviews={interviews} blockedSlots={blockedSlots}
+                onApprove={handleApprove} 
+                onUpdateStage={(id, stage) => { setInterviews(prev => prev.map(i => i.id === id ? { ...i, stage } : i)); api.updateInterview(id, { stage }); }}
+                onAssign={(id, intId) => { setInterviews(prev => prev.map(i => i.id === id ? { ...i, interviewerId: intId } : i)); api.updateInterview(id, { interviewerId: intId }); }}
+                onCreateInterviewer={handleCreateInterviewer}
+                onBlockSlot={(date, start, end) => { const nb: BlockedSlot = { id: crypto.randomUUID(), date, startTime: start, endTime: end }; setBlockedSlots(prev => [...prev, nb]); api.createBlock(nb); }}
+                onDeleteBlock={(id) => { setBlockedSlots(prev => prev.filter(b => b.id !== id)); api.deleteBlock(id); }}
+                onAddCandidate={handleAddCandidate} onCancel={handleAdminCancelInterview} onDeleteCandidate={handleDeleteCandidate}
+              />
+            )}
+            {user.role === Role.INTERVIEWER && (
+              <div className="space-y-8">
+                <div className="flex items-center gap-3">
+                   <Sparkles className="text-red-400 animate-pulse" />
+                   <h1 className="text-3xl font-black tracking-tight dark:text-white uppercase">Staff View</h1>
+                </div>
+                <InterviewerGrid 
+                  interviews={interviews} interviewers={allUsers.filter(u => u.role === Role.INTERVIEWER)}
+                  users={allUsers} onAssign={(id, intId) => { setInterviews(prev => prev.map(i => i.id === id ? { ...i, interviewerId: intId } : i)); api.updateInterview(id, { interviewerId: intId }); }}
+                  canMove={true} currentInterviewerId={user.id} onAddStaff={() => {}} onCancel={handleDeleteCandidate} 
+                />
+              </div>
+            )}
+            {user.role === Role.STUDENT && (
+              <StudentScheduler 
+                student={user} interviews={interviews} blockedSlots={blockedSlots} notifications={notifications}
+                onSchedule={handleSchedule} onCancel={handleCancelInterview} onClearNotification={(id) => { setNotifications(prev => prev.filter(n => n.id !== id)); api.deleteNotification(id); }}
+              />
+            )}
+          </main>
+          
+          <footer className="py-10 text-center text-xs opacity-50 font-bold tracking-widest uppercase dark:text-slate-500">
+             &copy; 2024 InterviewFlow &bull; Lunar Blood Moon Theme
+          </footer>
+        </div>
+      )}
     </div>
   );
 };

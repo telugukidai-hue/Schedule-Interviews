@@ -1,8 +1,8 @@
 
 import React, { useState } from 'react';
 import { User, InterviewSlot, Stage, Role, BlockedSlot } from '../types';
-import { KanbanBoard } from './KanbanBoard';
 import { InterviewerGrid } from './InterviewerGrid';
+import { KanbanBoard } from './KanbanBoard';
 import { Button } from './Button';
 import { Users, LayoutDashboard, UserCheck, UserPlus, Plus, CalendarOff, Trash2, Mail } from 'lucide-react';
 import { parseISO, format } from 'date-fns';
@@ -19,6 +19,7 @@ interface AdminDashboardProps {
   onDeleteBlock: (id: string) => void;
   onAddCandidate: (name: string, phone: string) => void;
   onCancel: (interviewId: string) => void;
+  onDeleteCandidate?: (interviewId: string) => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -32,7 +33,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onBlockSlot,
   onDeleteBlock,
   onAddCandidate,
-  onCancel
+  onCancel,
+  onDeleteCandidate
 }) => {
   const [activeTab, setActiveTab] = useState<'pipeline' | 'approvals' | 'scheduling' | 'create_interviewer' | 'availability'>('pipeline');
   
@@ -57,7 +59,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setNewIntUsername('');
       setNewIntPass('');
       setNewIntEmail('');
-      setCreateMsg('Interviewer created successfully!');
+      setCreateMsg('Staff account successfully added.');
       setTimeout(() => setCreateMsg(''), 3000);
     }
   };
@@ -65,80 +67,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleBlockSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (blockDate && blockStart && blockEnd) {
-      // Check if any student has booked a slot in this range
-      // We need to parse times to minutes to check overlap
-      const startMin = parseInt(blockStart.split(':')[0]) * 60 + parseInt(blockStart.split(':')[1]);
-      const endMin = parseInt(blockEnd.split(':')[0]) * 60 + parseInt(blockEnd.split(':')[1]);
-      
-      const conflicts = interviews.filter(i => {
-        if (i.date !== blockDate) return false;
-        if (i.durationMinutes === 0) return false; // Ignore placeholders
-        
-        const iStart = parseInt(i.startTime.split(':')[0]) * 60 + parseInt(i.startTime.split(':')[1]);
-        const iEnd = iStart + i.durationMinutes;
-        // Overlap logic: (StartA < EndB) and (EndA > StartB)
-        return Math.max(startMin, iStart) < Math.min(endMin, iEnd);
-      });
-
-      if (conflicts.length > 0) {
-        const studentNames = conflicts.map(c => users.find(u => u.id === c.studentId)?.name).join(', ');
-        // Use alert or set error state
-        alert(`Cannot block this slot. The following students have bookings: ${studentNames}. Please cancel their interviews first.`);
-        return;
-      }
-
       onBlockSlot(blockDate, blockStart, blockEnd);
       setBlockDate('');
+      alert("Success: Slots for selected date are now restricted.");
     }
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 border-b border-slate-200 pb-6">
+      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 border-b border-slate-200 dark:border-white/5 pb-6">
         <div>
-           <h1 className="text-3xl font-bold text-slate-800">Admin Dashboard</h1>
-           <p className="text-slate-500 mt-1">Manage pipeline, approvals and interviewers</p>
+           <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">Admin Control</h1>
+           <p className="text-slate-500 dark:text-slate-400 mt-1 font-bold">Monitor registered users and session staff</p>
         </div>
         
-        <div className="flex flex-wrap gap-2 p-1 bg-white border border-slate-200 rounded-xl shadow-sm">
-          <button
-            onClick={() => setActiveTab('pipeline')}
-            className={`px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center ${activeTab === 'pipeline' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}
-          >
-            <LayoutDashboard className="w-4 h-4 mr-2" />
-            Pipeline
-          </button>
-          <button
-            onClick={() => setActiveTab('scheduling')}
-            className={`px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center ${activeTab === 'scheduling' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}
-          >
-            <Users className="w-4 h-4 mr-2" />
-            Interviewer Board
-          </button>
-          <button
-            onClick={() => setActiveTab('approvals')}
-            className={`px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center ${activeTab === 'approvals' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}
-          >
-            <UserCheck className="w-4 h-4 mr-2" />
-            Approvals
-            {pendingStudents.length > 0 && (
-              <span className="ml-2 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{pendingStudents.length}</span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('create_interviewer')}
-            className={`px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center ${activeTab === 'create_interviewer' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}
-          >
-            <UserPlus className="w-4 h-4 mr-2" />
-            Add Staff
-          </button>
-          <button
-            onClick={() => setActiveTab('availability')}
-            className={`px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center ${activeTab === 'availability' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}
-          >
-            <CalendarOff className="w-4 h-4 mr-2" />
-            Availability
-          </button>
+        <div className="flex flex-wrap gap-2 p-1 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/5 rounded-xl shadow-sm">
+          {[
+            { id: 'pipeline', label: 'Pipeline', icon: LayoutDashboard },
+            { id: 'scheduling', label: 'Staff Grid', icon: Users },
+            { id: 'approvals', label: 'Approvals', icon: UserCheck, count: pendingStudents.length },
+            { id: 'create_interviewer', label: 'Add Staff', icon: UserPlus },
+            { id: 'availability', label: 'Availability', icon: CalendarOff }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`px-4 py-2.5 rounded-lg text-sm font-black transition-all flex items-center ${activeTab === tab.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5'}`}
+            >
+              <tab.icon className="w-4 h-4 mr-2" />
+              {tab.label}
+              {tab.count !== undefined && tab.count > 0 && (
+                <span className="ml-2 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{tab.count}</span>
+              )}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -148,14 +110,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           users={users} 
           onUpdateStage={onUpdateStage}
           onAddCandidate={onAddCandidate}
+          onDeleteCandidate={onDeleteCandidate}
         />
       )}
 
       {activeTab === 'scheduling' && (
-        <div className="bg-slate-100 p-6 rounded-2xl border border-slate-200">
+        <div className="bg-slate-100 dark:bg-slate-900/40 p-6 rounded-2xl border border-slate-200 dark:border-white/5 shadow-inner">
            <div className="mb-4 flex justify-between items-center">
-             <h2 className="text-lg font-bold text-slate-700">Interviewer Allocation</h2>
-             <span className="text-sm text-slate-500 bg-white px-3 py-1 rounded-full shadow-sm">Drag to reassign</span>
+             <h2 className="text-lg font-black text-slate-700 dark:text-white">Assigned Sessions</h2>
+             <span className="text-[10px] text-slate-500 bg-white dark:bg-white/10 px-3 py-1.5 rounded-full shadow-sm font-black uppercase tracking-wider">Default allocation active</span>
            </div>
            <InterviewerGrid 
             interviews={interviews}
@@ -170,31 +133,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {activeTab === 'approvals' && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden max-w-4xl mx-auto">
-          <div className="p-6 border-b border-slate-100 bg-slate-50">
-            <h2 className="text-xl font-bold text-slate-800">Pending Candidate Approvals</h2>
-            <p className="text-sm text-slate-500">Approve candidates to allow them to schedule interviews.</p>
+        <div className="bg-white dark:bg-white/5 rounded-xl shadow-lg border border-slate-200 dark:border-white/10 overflow-hidden max-w-4xl mx-auto">
+          <div className="p-6 border-b border-slate-100 dark:border-white/10 bg-slate-50 dark:bg-transparent">
+            <h2 className="text-xl font-black text-slate-800 dark:text-white tracking-tight">Pending Approval</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 font-bold mt-1">Allow registration for new student accounts.</p>
           </div>
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-slate-100 dark:divide-white/5">
             {pendingStudents.length === 0 ? (
-              <div className="p-12 text-center text-slate-400 flex flex-col items-center">
-                <UserCheck size={48} className="text-slate-200 mb-3" />
-                <p>No pending approvals</p>
+              <div className="p-16 text-center text-slate-400 flex flex-col items-center">
+                <UserCheck size={64} className="text-slate-200 dark:text-white/10 mb-4" />
+                <p className="font-black text-lg">No pending requests</p>
               </div>
             ) : (
               pendingStudents.map(student => (
-                <div key={student.id} className="p-6 flex items-center justify-between hover:bg-blue-50/50 transition-colors">
+                <div key={student.id} className="p-6 flex items-center justify-between hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors">
                   <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-lg">
+                    <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 flex items-center justify-center font-black text-xl shadow-sm">
                       {student.name.charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <h3 className="font-bold text-slate-900">{student.name}</h3>
-                      <p className="text-sm text-slate-500 font-mono">{student.phone}</p>
+                      <h3 className="font-black text-slate-900 dark:text-white text-lg tracking-tight">{student.name}</h3>
+                      <p className="text-sm text-slate-400 font-black tracking-widest">{student.phone}</p>
                     </div>
                   </div>
-                  <Button onClick={() => onApprove(student.id)} variant="primary">
-                    Approve Request
+                  <Button onClick={() => onApprove(student.id)} variant="primary" className="font-black px-8 py-3 rounded-xl shadow-lg">
+                    Approve Access
                   </Button>
                 </div>
               ))
@@ -205,68 +168,45 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {activeTab === 'create_interviewer' && (
          <div className="max-w-md mx-auto mt-8">
-           <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
-             <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+           <div className="bg-white dark:bg-white/5 p-8 rounded-2xl shadow-xl border border-slate-200 dark:border-white/10">
+             <h2 className="text-xl font-black mb-6 flex items-center gap-3 tracking-tight dark:text-white">
                <UserPlus className="text-blue-600" />
-               Create Interviewer
+               New Staff User
              </h2>
              
              {createMsg && (
-               <div className="mb-4 p-3 bg-green-50 text-green-700 rounded-lg text-sm text-center">
+               <div className="mb-4 p-4 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 rounded-xl text-sm text-center font-black border border-green-200 dark:border-green-800 animate-in zoom-in duration-300">
                  {createMsg}
                </div>
              )}
 
              <form onSubmit={handleCreateSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={newIntName}
-                    onChange={e => setNewIntName(e.target.value)}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                    placeholder="e.g. John Doe"
-                  />
+                  <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Display Name</label>
+                  <input type="text" required value={newIntName} onChange={e => setNewIntName(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none font-bold text-slate-900 dark:text-white placeholder:opacity-30"
+                    placeholder="Full Name" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
-                    <input 
-                      type="email" 
-                      required
-                      value={newIntEmail}
-                      onChange={e => setNewIntEmail(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                      placeholder="john@company.com"
-                    />
-                  </div>
+                  <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Login ID / Phone</label>
+                  <input type="text" required value={newIntUsername} onChange={e => setNewIntUsername(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none font-bold text-slate-900 dark:text-white"
+                    placeholder="Enter unique ID" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Username (Login)</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={newIntUsername}
-                    onChange={e => setNewIntUsername(e.target.value)}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                    placeholder="e.g. johnd"
-                  />
+                  <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Staff Email (Sync)</label>
+                  <input type="email" required value={newIntEmail} onChange={e => setNewIntEmail(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none font-bold text-slate-900 dark:text-white"
+                    placeholder="staff@example.com" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-                  <input 
-                    type="password" 
-                    required
-                    value={newIntPass}
-                    onChange={e => setNewIntPass(e.target.value)}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                    placeholder="••••••••"
-                  />
+                  <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Password</label>
+                  <input type="password" required value={newIntPass} onChange={e => setNewIntPass(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none font-bold text-slate-900 dark:text-white"
+                    placeholder="••••••••" />
                 </div>
-                <Button type="submit" className="w-full mt-4">
-                  <Plus className="w-4 h-4 mr-2" /> Create Account
+                <Button type="submit" className="w-full mt-6 font-black py-4 rounded-xl shadow-xl shadow-blue-500/20">
+                  Add User
                 </Button>
              </form>
            </div>
@@ -275,66 +215,53 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {activeTab === 'availability' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-             <h3 className="font-bold text-lg mb-4 text-slate-800 flex items-center gap-2">
-               <CalendarOff className="text-red-500" /> Block Slots (Unavailable)
+          <div className="bg-white dark:bg-white/5 p-8 rounded-2xl shadow-xl border border-slate-200 dark:border-white/10">
+             <h3 className="font-black text-xl mb-6 text-slate-800 dark:text-white flex items-center gap-3 tracking-tight">
+               <CalendarOff className="text-red-500" /> Restrict Access
              </h3>
-             <form onSubmit={handleBlockSubmit} className="space-y-4">
+             <form onSubmit={handleBlockSubmit} className="space-y-6">
                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Date</label>
-                  <input 
-                    type="date"
-                    required
-                    value={blockDate}
-                    onChange={e => setBlockDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
+                  <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Date</label>
+                  <input type="date" required value={blockDate} onChange={e => setBlockDate(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl font-bold text-slate-900 dark:text-white" />
                </div>
-               <div className="grid grid-cols-2 gap-4">
+               <div className="grid grid-cols-2 gap-6">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Start Time</label>
-                    <input 
-                      type="time"
-                      required
-                      value={blockStart}
-                      onChange={e => setBlockStart(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
+                    <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">From</label>
+                    <input type="time" required value={blockStart} onChange={e => setBlockStart(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl font-bold text-slate-900 dark:text-white" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">End Time</label>
-                    <input 
-                      type="time"
-                      required
-                      value={blockEnd}
-                      onChange={e => setBlockEnd(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
+                    <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">To</label>
+                    <input type="time" required value={blockEnd} onChange={e => setBlockEnd(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl font-bold text-slate-900 dark:text-white" />
                   </div>
                </div>
-               <Button type="submit" variant="danger" className="w-full">
-                 Mark Unavailable
+               <Button type="submit" variant="danger" className="w-full font-black py-4 rounded-xl shadow-xl shadow-red-500/20">
+                 Block Availability
                </Button>
              </form>
           </div>
 
-          <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 overflow-hidden flex flex-col">
-             <h3 className="font-bold text-lg mb-4 text-slate-800">Current Blocks</h3>
-             <div className="flex-1 overflow-y-auto space-y-2 pr-2">
+          <div className="bg-white dark:bg-white/5 p-8 rounded-2xl border border-slate-200 dark:border-white/10 shadow-xl overflow-hidden flex flex-col">
+             <h3 className="font-black text-xl mb-6 text-slate-800 dark:text-white tracking-tight">System Restrictions</h3>
+             <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar max-h-[400px]">
                {blockedSlots.length === 0 ? (
-                 <p className="text-slate-400 text-sm italic">No unavailable slots marked.</p>
+                 <div className="text-center py-20 bg-slate-50 dark:bg-white/5 rounded-xl border border-dashed border-slate-200 dark:border-white/5">
+                    <p className="text-slate-400 dark:text-slate-500 text-sm font-bold">No active blocks.</p>
+                 </div>
                ) : (
                  blockedSlots.map(block => (
-                   <div key={block.id} className="bg-white p-3 rounded-lg border border-red-100 flex justify-between items-center shadow-sm">
+                   <div key={block.id} className="bg-slate-50 dark:bg-white/5 p-5 rounded-xl border border-red-100 dark:border-red-900/20 flex justify-between items-center group transition-all hover:bg-red-50 dark:hover:bg-red-900/10">
                      <div>
-                       <div className="font-medium text-slate-800">{format(parseISO(block.date), 'dd MMM yyyy')}</div>
-                       <div className="text-xs text-red-500 font-mono">{block.startTime} - {block.endTime}</div>
+                       <div className="font-black text-slate-900 dark:text-white tracking-tight">{format(parseISO(block.date), 'dd MMMM yyyy')}</div>
+                       <div className="text-[10px] text-red-600 dark:text-red-400 font-black uppercase tracking-widest mt-1 bg-red-100/50 dark:bg-red-900/20 px-2 py-1 rounded-md inline-block border border-red-200 dark:border-red-900/30">
+                         {block.startTime} to {block.endTime}
+                       </div>
                      </div>
-                     <button 
-                       onClick={() => onDeleteBlock(block.id)}
-                       className="text-slate-400 hover:text-red-500 p-2 transition-colors"
-                     >
-                       <Trash2 size={16} />
+                     <button onClick={() => onDeleteBlock(block.id)}
+                       className="text-slate-300 hover:text-red-500 p-2 transition-all bg-white dark:bg-white/5 rounded-lg shadow-sm border border-slate-100 dark:border-white/10">
+                       <Trash2 size={18} />
                      </button>
                    </div>
                  ))
